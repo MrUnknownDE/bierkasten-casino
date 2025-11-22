@@ -2,23 +2,26 @@ import express from "express";
 import session from "express-session";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import { pool } from "./db"; 
+import { pool } from "./db";
 import { config } from "./config";
 import { authRouter } from "./routes/auth";
 import { meRouter } from "./routes/me";
 import { walletRouter } from "./routes/wallet";
 import { slotRouter } from "./routes/slot";
-import { BalanceLeaderboardEntry, BigWinLeaderboardEntry} from "./routes/leaderboard";
+import { BalanceLeaderboardEntry, BigWinLeaderboardEntry } from "./routes/leaderboard";
+import { adminRouter } from "./routes/admin";
 
 const app = express();
 
-// Reverse Proxy (NGINX) vertrauen
+// Reverse Proxy
 app.set("trust proxy", 1);
 
-app.use(cors({
-  origin: config.frontendOrigin,
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: config.frontendOrigin,
+    credentials: true
+  })
+);
 app.use(express.json());
 app.use(cookieParser());
 app.use(
@@ -28,8 +31,7 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      // WICHTIG: per ENV steuerbar, nicht stumpf NODE_ENV
-      secure: config.cookieSecure,
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       maxAge: 1000 * 60 * 60 * 24 * 7
     }
@@ -64,7 +66,7 @@ app.get("/api/leaderboard/balance", async (req, res) => {
   }
 });
 
-// --- Leaderboard: Größter Einzelgewinn pro User ---
+// Leaderboard: Größter Einzelgewinn pro User
 app.get("/api/leaderboard/bigwin", async (req, res) => {
   try {
     const { rows } = await pool.query<BigWinLeaderboardEntry>(
@@ -94,6 +96,7 @@ app.use("/auth", authRouter);
 app.use("/me", meRouter);
 app.use("/wallet", walletRouter);
 app.use("/slot", slotRouter);
+app.use("/admin", adminRouter);
 
 app.listen(config.port, () => {
   console.log(`Bierbaron backend läuft auf Port ${config.port}`);

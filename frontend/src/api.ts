@@ -92,6 +92,25 @@ export interface BigWinLeaderboardEntry {
   biggest_win: number;
 }
 
+// --- Admin Types ---
+
+export interface AdminMeResponse {
+  is_admin: boolean;
+  discord_id: string;
+  discord_name: string;
+}
+
+export interface AdminUserSummary {
+  user_id: number;
+  discord_id: string;
+  discord_name: string;
+  avatar_url: string | null;
+  balance: number;
+  last_claim_at: string | null;
+  free_spins_bob_remaining: number;
+  free_spins_bob_bet: number | null;
+}
+
 // --- Auth / User ---
 
 export async function getMe(): Promise<MeResponse> {
@@ -99,7 +118,6 @@ export async function getMe(): Promise<MeResponse> {
 }
 
 export function getLoginUrl(): string {
-  // Route im Backend: /auth/discord
   return `${API_BASE}/auth/discord`;
 }
 
@@ -133,4 +151,41 @@ export async function getBalanceLeaderboard(): Promise<BalanceLeaderboardEntry[]
 
 export async function getBigWinLeaderboard(): Promise<BigWinLeaderboardEntry[]> {
   return apiGet<BigWinLeaderboardEntry[]>("/api/leaderboard/bigwin");
+}
+
+// --- Admin API ---
+
+export async function getAdminMe(): Promise<AdminMeResponse> {
+  return apiGet<AdminMeResponse>("/admin/me");
+}
+
+export async function adminFindUserByDiscord(
+  discordId: string
+): Promise<AdminUserSummary> {
+  return apiGet<AdminUserSummary>(`/admin/user/by-discord/${encodeURIComponent(discordId)}`);
+}
+
+export async function adminAdjustBalance(
+  userId: number,
+  amount: number,
+  reason?: string
+): Promise<{ user_id: number; balance: number }> {
+  return apiPost<{ user_id: number; balance: number }>(
+    `/admin/user/${userId}/adjust-balance`,
+    { amount, reason }
+  );
+}
+
+export async function adminResetWallet(
+  userId: number,
+  resetBalanceTo?: number,
+  clearFreeSpins: boolean = true
+): Promise<AdminUserSummary> {
+  return apiPost<AdminUserSummary>(
+    `/admin/user/${userId}/reset-wallet`,
+    {
+      reset_balance_to: resetBalanceTo,
+      clear_free_spins: clearFreeSpins
+    }
+  );
 }
