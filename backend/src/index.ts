@@ -2,7 +2,8 @@ import express from "express";
 import session from "express-session";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import { pool } from "./db";
+import connectPgSimple from "connect-pg-simple"; // Importieren
+import { pool } from "./db"; // Unser existierender DB-Pool
 import { config } from "./config";
 import { authRouter } from "./routes/auth";
 import { meRouter } from "./routes/me";
@@ -19,6 +20,14 @@ const app = express();
 // Reverse Proxy
 app.set("trust proxy", 1);
 
+// Session Store auf PostgreSQL umstellen
+const PgStore = connectPgSimple(session);
+const sessionStore = new PgStore({
+  pool: pool, // Bestehenden Pool wiederverwenden
+  tableName: "session", // Name der Tabelle in der DB
+  createTableIfMissing: true,
+});
+
 app.use(
   cors({
     origin: config.frontendOrigin,
@@ -29,15 +38,16 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(
   session({
+    // Den neuen Store hier einfügen
+    store: sessionStore,
     secret: config.sessionSecret,
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      // KORREKTUR: Wir verwenden jetzt den Wert aus der config.ts
-      secure: config.cookieSecure, 
+      secure: config.cookieSecure,
       sameSite: "lax",
-      maxAge: 1000 * 60 * 60 * 24 * 7,
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 Tage
     },
   })
 );
