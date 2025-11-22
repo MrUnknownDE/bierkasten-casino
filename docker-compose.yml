@@ -1,6 +1,6 @@
 services:
   backend:
-    build: ./backend
+    image: mrunknownde/biercasino-backend:latest
     container_name: bierbaron_backend
     restart: unless-stopped
     env_file:
@@ -9,7 +9,7 @@ services:
       - bierbaron_net
 
   frontend:
-    build: ./frontend
+    image: mrunknownde/biercasino-frontend:latest
     container_name: bierbaron_frontend
     restart: unless-stopped
     environment:
