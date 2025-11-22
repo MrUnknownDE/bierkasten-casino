@@ -53,6 +53,8 @@ export interface WalletResponse {
   balance: number;
   last_claim_at: string | null;
   next_claim_in_ms: number;
+  free_spins_bob_remaining: number;
+  free_spins_bob_bet: number | null;
 }
 
 export interface SlotSpinLineWin {
@@ -69,6 +71,11 @@ export interface SlotSpinResponse {
   book_count: number;
   grid: string[][]; // [reel][row]
   line_wins: SlotSpinLineWin[];
+
+  is_free_spin: boolean;
+  free_spins_remaining: number;
+  free_spins_awarded: number;
+  free_spins_bet_amount: number | null;
 }
 
 export interface BalanceLeaderboardEntry {

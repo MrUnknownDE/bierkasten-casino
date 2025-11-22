@@ -23,7 +23,9 @@ walletRouter.get("/", requireAuth, async (req: any, res) => {
       user_id: wallet.user_id,
       balance: wallet.balance,
       last_claim_at: wallet.last_claim_at,
-      next_claim_in_ms: nextClaimInMs
+      next_claim_in_ms: nextClaimInMs,
+      free_spins_bob_remaining: wallet.free_spins_bob_remaining,
+      free_spins_bob_bet: wallet.free_spins_bob_bet
     });
   } catch (err) {
     console.error("GET /wallet error:", err);
@@ -42,7 +44,9 @@ walletRouter.post("/claim", requireAuth, async (req: any, res) => {
       balance: result.wallet.balance,
       last_claim_at: result.wallet.last_claim_at,
       claimed_amount: result.claimedAmount,
-      next_claim_in_ms: result.nextClaimInMs
+      next_claim_in_ms: result.nextClaimInMs,
+      free_spins_bob_remaining: result.wallet.free_spins_bob_remaining,
+      free_spins_bob_bet: result.wallet.free_spins_bob_bet
     });
   } catch (err) {
     console.error("POST /wallet/claim error:", err);

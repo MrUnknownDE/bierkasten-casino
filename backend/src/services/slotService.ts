@@ -1,3 +1,6 @@
+// path: backend/src/services/slotService.ts
+import { randomInt } from "crypto";
+
 // backend/src/services/slotService.ts
 export type SymbolId =
   | "TEN" | "J" | "Q" | "K" | "A"
@@ -38,6 +41,17 @@ const BOOK_SCATTER: { [count: number]: number } = {
   4: 5,
   5: 20
 };
+
+// Wie viele Freispiele gibt es bei x Büchern im Hauptspiel?
+// 3 Bücher  -> 10 Freispiele
+// 4 Bücher  -> 12 Freispiele
+// 5+ Bücher -> 15 Freispiele
+export function getFreeSpinsForBooks(bookCount: number): number {
+  if (bookCount >= 5) return 15;
+  if (bookCount === 4) return 12;
+  if (bookCount === 3) return 10;
+  return 0;
+}
 
 export interface LineWin {
   lineIndex: number;

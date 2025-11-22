@@ -1,5 +1,3 @@
-// frontend/src/App.tsx
-
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import {
   getMe,
@@ -366,6 +364,8 @@ const App: React.FC = () => {
           balance: res.balance,
           last_claim_at: res.last_claim_at,
           next_claim_in_ms: res.next_claim_in_ms,
+          free_spins_bob_remaining: res.free_spins_bob_remaining,
+          free_spins_bob_bet: res.free_spins_bob_bet,
         },
       }));
       // Claim kann Leaderboard ändern
@@ -421,17 +421,26 @@ const App: React.FC = () => {
     const { wallet } = state;
     if (!wallet) return;
 
-    if (slotBet <= 0) {
-      setState((prev) => ({ ...prev, error: "Einsatz muss > 0 sein" }));
-      return;
-    }
+    const hasFreeSpins = wallet.free_spins_bob_remaining > 0;
+    const effectiveBetForDisplay =
+      hasFreeSpins && wallet.free_spins_bob_bet
+        ? wallet.free_spins_bob_bet
+        : slotBet;
 
-    if (slotBet > wallet.balance) {
-      setState((prev) => ({
-        ...prev,
-        error: "Nicht genug Bierkästen für diesen Einsatz",
-      }));
-      return;
+    if (!hasFreeSpins) {
+      // Nur bei normalen Spins: Validierung
+      if (slotBet <= 0) {
+        setState((prev) => ({ ...prev, error: "Einsatz muss > 0 sein" }));
+        return;
+      }
+
+      if (slotBet > wallet.balance) {
+        setState((prev) => ({
+          ...prev,
+          error: "Nicht genug Bierkästen für diesen Einsatz",
+        }));
+        return;
+      }
     }
 
     setSlotSpinning(true);
@@ -452,7 +461,7 @@ const App: React.FC = () => {
     }, 70);
 
     try {
-      const res = await spinBookOfBier(slotBet);
+      const res = await spinBookOfBier(effectiveBetForDisplay);
       pendingResultRef.current = res;
 
       const start = spinStartTimeRef.current || Date.now();
@@ -497,6 +506,8 @@ const App: React.FC = () => {
                     wallet: {
                       ...prev.wallet,
                       balance: result.balance_after,
+                      free_spins_bob_remaining: result.free_spins_remaining,
+                      free_spins_bob_bet: result.free_spins_bet_amount,
                     },
                   }
                 : prev
@@ -528,6 +539,11 @@ const App: React.FC = () => {
   const gridToShow = displayGrid;
   const isBigWin =
     lastSpin && lastSpin.win_amount >= lastSpin.bet_amount * 20; // Schwelle justierbar
+
+  const hasFreeSpins =
+    wallet && wallet.free_spins_bob_remaining && wallet.free_spins_bob_remaining > 0;
+  const freeSpinBet =
+    hasFreeSpins && wallet?.free_spins_bob_bet ? wallet.free_spins_bob_bet : null;
 
   return (
     <div
@@ -708,6 +724,22 @@ const App: React.FC = () => {
                     ? new Date(wallet.last_claim_at).toLocaleString("de-DE")
                     : "noch nie"}
                 </p>
+                {wallet.free_spins_bob_remaining > 0 && (
+                  <p
+                    style={{
+                      fontSize: "0.85rem",
+                      color: "#ffd700",
+                      textAlign: "center",
+                      marginTop: 8,
+                    }}
+                  >
+                    🎁 Aktive Freispiele:{" "}
+                    <b>{wallet.free_spins_bob_remaining}</b>
+                    {wallet.free_spins_bob_bet
+                      ? ` (Einsatz: ${wallet.free_spins_bob_bet} Bierkästen)`
+                      : ""}
+                  </p>
+                )}
               </div>
 
               <div
@@ -785,9 +817,9 @@ const App: React.FC = () => {
             >
               <h2 style={{ marginTop: 0, fontSize: "1.2rem" }}>🎰 Book of Bier</h2>
               <p style={{ fontSize: "0.9rem", color: "#ccc", marginBottom: 14 }}>
-                5 Walzen, 3 Reihen, 10 Gewinnlinien. <b>BOOK</b> (
+                5 Walzen, 3 Reihen, 10 Gewinnlinien. <b>BOOK</b>(
                 {renderSymbol("BOOK")}) ist Scatter: 3+ Bücher geben
-                Bonus-Gewinne.
+                Bonus-Gewinne und können Freispiele auslösen.
               </p>
 
               <div
@@ -801,40 +833,56 @@ const App: React.FC = () => {
                 }}
               >
                 <div style={{ fontSize: "0.9rem" }}>
-                  Einsatz:&nbsp;
-                  <input
-                    type="number"
-                    min={1}
-                    max={1000}
-                    value={slotBet}
-                    onChange={(
-                      e: React.ChangeEvent<HTMLInputElement>
-                    ) => {
-                      const v = parseInt(e.target.value || "0", 10);
-                      setSlotBet(Number.isFinite(v) ? v : 0);
-                    }}
-                    style={{
-                      width: 90,
-                      padding: "4px 6px",
-                      borderRadius: 6,
-                      border: "1px solid #555",
-                      background: "#090910",
-                      color: "#f5f5f5",
-                      textAlign: "center",
-                    }}
-                  />{" "}
-                  Bierkästen
+                  {!hasFreeSpins ? (
+                    <>
+                      Einsatz:&nbsp;
+                      <input
+                        type="number"
+                        min={1}
+                        max={1000}
+                        value={slotBet}
+                        onChange={(
+                          e: React.ChangeEvent<HTMLInputElement>
+                        ) => {
+                          const v = parseInt(e.target.value || "0", 10);
+                          setSlotBet(Number.isFinite(v) ? v : 0);
+                        }}
+                        style={{
+                          width: 90,
+                          padding: "4px 6px",
+                          borderRadius: 6,
+                          border: "1px solid #555",
+                          background: "#090910",
+                          color: "#f5f5f5",
+                          textAlign: "center",
+                        }}
+                      />{" "}
+                      Bierkästen
+                    </>
+                  ) : (
+                    <>
+                      🎁 Freispiel-Einsatz:&nbsp;
+                      <b>
+                        {freeSpinBet
+                          ? freeSpinBet
+                          : "unbekannt"}
+                      </b>{" "}
+                      Bierkästen
+                    </>
+                  )}
                 </div>
 
                 <button
                   onClick={handleSpin}
-                  disabled={slotSpinning || wallet.balance <= 0}
+                  disabled={slotSpinning || (!hasFreeSpins && wallet.balance <= 0)}
                   style={{
                     padding: "9px 18px",
                     borderRadius: 999,
                     border: "none",
                     background: slotSpinning
                       ? "#444"
+                      : hasFreeSpins
+                      ? "linear-gradient(135deg, #7CFC00, #f9d976)"
                       : "linear-gradient(135deg, #ff6b6b, #f9d976)",
                     color: slotSpinning ? "#aaa" : "#222",
                     fontWeight: 600,
@@ -848,7 +896,11 @@ const App: React.FC = () => {
                       "transform 0.15s ease-out, box-shadow 0.15s ease-out",
                   }}
                 >
-                  {slotSpinning ? "Rollen..." : "Spin starten 🎰"}
+                  {slotSpinning
+                    ? "Rollen..."
+                    : hasFreeSpins
+                    ? `Freispiel spielen (${wallet.free_spins_bob_remaining} übrig)`
+                    : "Spin starten 🎰"}
                 </button>
 
                 <div style={{ fontSize: "0.85rem", color: "#aaa" }}>
@@ -856,6 +908,19 @@ const App: React.FC = () => {
                   <b>{wallet.balance.toLocaleString("de-DE")}</b> Bierkästen
                 </div>
               </div>
+
+              {lastSpin && lastSpin.free_spins_awarded > 0 && (
+                <div
+                  style={{
+                    marginBottom: 8,
+                    fontSize: "0.9rem",
+                    color: "#ffd700",
+                  }}
+                >
+                  🎉 Du hast{" "}
+                  <b>{lastSpin.free_spins_awarded}</b> Freispiele gewonnen!
+                </div>
+              )}
 
               {gridToShow ? (
                 <div style={{ marginTop: 4 }}>
@@ -876,7 +941,8 @@ const App: React.FC = () => {
                           textAlign: "center",
                         }}
                       >
-                        Letzter Spin:
+                        Letzter Spin
+                        {lastSpin?.is_free_spin ? " (Freispiel)" : ""}
                       </div>
                       <div
                         style={{
@@ -950,6 +1016,12 @@ const App: React.FC = () => {
                         }}
                       >
                         <p style={{ margin: "4px 0" }}>
+                          Spin-Typ:{" "}
+                          <b>
+                            {lastSpin.is_free_spin ? "Freispiel" : "Normaler Spin"}
+                          </b>
+                        </p>
+                        <p style={{ margin: "4px 0" }}>
                           Einsatz: <b>{lastSpin.bet_amount}</b>
                         </p>
                         <p style={{ margin: "4px 0" }}>
@@ -971,6 +1043,12 @@ const App: React.FC = () => {
                         <p style={{ margin: "4px 0" }}>
                           Bücher im Feld: <b>{lastSpin.book_count}</b>
                         </p>
+                        {lastSpin.free_spins_remaining > 0 && (
+                          <p style={{ margin: "4px 0", color: "#ffd700" }}>
+                            Noch aktive Freispiele:{" "}
+                            <b>{lastSpin.free_spins_remaining}</b>
+                          </p>
+                        )}
                         {lastSpin.line_wins.length > 0 ? (
                           <div style={{ marginTop: 6 }}>
                             <div

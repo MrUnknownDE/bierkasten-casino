@@ -5,19 +5,26 @@ export interface Wallet {
   user_id: number;
   balance: number;
   last_claim_at: string | null;
+
+  free_spins_bob_remaining: number;
+  free_spins_bob_bet: number | null;
 }
 
 const HOURLY_RATE = 25;
 const CLAIM_INTERVAL_MS = 60 * 60 * 1000; // 1 Stunde
 
-// Begrenzung: maximal so viele Stunden werden nachträglich gutgeschrieben.
-// Beispiel: 24 => max 24 * 25 = 600 Bierkästen pro Claim.
-const MAX_OFFLINE_HOURS = 24;
+// Harte Obergrenze: Pro Claim maximal so viele Bierkästen gutschreiben.
+const MAX_CLAIM_PER_CLAIM = 500;
 
 export async function getWalletForUser(userId: number): Promise<Wallet> {
   const rows = await query<Wallet>(
     `
-    SELECT user_id, balance, last_claim_at
+    SELECT
+      user_id,
+      balance,
+      last_claim_at,
+      free_spins_bob_remaining,
+      free_spins_bob_bet
     FROM wallets
     WHERE user_id = $1
     `,
@@ -28,9 +35,9 @@ export async function getWalletForUser(userId: number): Promise<Wallet> {
     // Fallback, falls aus irgendeinem Grund noch kein Wallet existiert
     const created = await query<Wallet>(
       `
-      INSERT INTO wallets (user_id, balance, last_claim_at)
-      VALUES ($1, 0, NULL)
-      RETURNING user_id, balance, last_claim_at
+      INSERT INTO wallets (user_id, balance, last_claim_at, free_spins_bob_remaining, free_spins_bob_bet)
+      VALUES ($1, 0, NULL, 0, NULL)
+      RETURNING user_id, balance, last_claim_at, free_spins_bob_remaining, free_spins_bob_bet
       `,
       [userId]
     );
@@ -46,6 +53,15 @@ export interface ClaimResult {
   nextClaimInMs: number;
 }
 
+/**
+ * Claim-Logik:
+ * - Erste Claim: einmalig HOURLY_RATE.
+ * - Danach: wenn seit last_claim_at >= 1h vergangen ist,
+ *   werden die vollen "nachholbaren" Stunden berechnet,
+ *   aber pro Claim maximal MAX_CLAIM_PER_CLAIM gutgeschrieben.
+ * - Egal wie lange jemand AFK war -> pro Klick maximal MAX_CLAIM_PER_CLAIM.
+ * - Nach einem erfolgreichen Claim wird last_claim_at auf "jetzt" gesetzt.
+ */
 export async function claimHourlyForUser(userId: number): Promise<ClaimResult> {
   const client = await pool.connect();
   try {
@@ -53,7 +69,12 @@ export async function claimHourlyForUser(userId: number): Promise<ClaimResult> {
 
     const res = await client.query<Wallet>(
       `
-      SELECT user_id, balance, last_claim_at
+      SELECT
+        user_id,
+        balance,
+        last_claim_at,
+        free_spins_bob_remaining,
+        free_spins_bob_bet
       FROM wallets
       WHERE user_id = $1
       FOR UPDATE
@@ -65,9 +86,9 @@ export async function claimHourlyForUser(userId: number): Promise<ClaimResult> {
     if (res.rows.length === 0) {
       const inserted = await client.query<Wallet>(
         `
-        INSERT INTO wallets (user_id, balance, last_claim_at)
-        VALUES ($1, 0, NULL)
-        RETURNING user_id, balance, last_claim_at
+        INSERT INTO wallets (user_id, balance, last_claim_at, free_spins_bob_remaining, free_spins_bob_bet)
+        VALUES ($1, 0, NULL, 0, NULL)
+        RETURNING user_id, balance, last_claim_at, free_spins_bob_remaining, free_spins_bob_bet
         `,
         [userId]
       );
@@ -83,19 +104,16 @@ export async function claimHourlyForUser(userId: number): Promise<ClaimResult> {
     let nextClaimInMs = 0;
 
     if (!lastClaim) {
-      // Erste Claim: direkt 25 geben
       claimedAmount = HOURLY_RATE;
+      nextClaimInMs = CLAIM_INTERVAL_MS;
     } else {
       const diffMs = now.getTime() - lastClaim.getTime();
 
       if (diffMs >= CLAIM_INTERVAL_MS) {
         const rawIntervals = Math.floor(diffMs / CLAIM_INTERVAL_MS);
-        // Begrenzung, um Unreal-Sprünge (75k etc.) zu verhindern
-        const effectiveIntervals = Math.min(rawIntervals, MAX_OFFLINE_HOURS);
+        const rawClaim = rawIntervals * HOURLY_RATE;
 
-        claimedAmount = effectiveIntervals * HOURLY_RATE;
-
-        // Nach einem erfolgreichen Claim: nächster in 1h
+        claimedAmount = Math.min(rawClaim, MAX_CLAIM_PER_CLAIM);
         nextClaimInMs = CLAIM_INTERVAL_MS;
       } else {
         claimedAmount = 0;
@@ -116,14 +134,13 @@ export async function claimHourlyForUser(userId: number): Promise<ClaimResult> {
         SET balance = $2,
             last_claim_at = $3
         WHERE user_id = $1
-        RETURNING user_id, balance, last_claim_at
+        RETURNING user_id, balance, last_claim_at, free_spins_bob_remaining, free_spins_bob_bet
         `,
         [userId, newBalance, newLastClaim]
       );
 
       wallet = updated.rows[0];
 
-      // Transaktion für History
       await client.query(
         `
         INSERT INTO wallet_transactions (user_id, amount, reason)
@@ -131,9 +148,6 @@ export async function claimHourlyForUser(userId: number): Promise<ClaimResult> {
         `,
         [userId, claimedAmount, "hourly_claim"]
       );
-
-      // nach einem erfolgreichen Claim ist der nächste in 1h
-      nextClaimInMs = CLAIM_INTERVAL_MS;
     }
 
     await client.query("COMMIT");
