@@ -17,8 +17,11 @@ import { adminRouter } from "./routes/admin";
 
 const app = express();
 
-// DIE LÖSUNG: Sage Express, dass es ZWEI Proxys vertrauen soll.
-app.set("trust proxy", 2);
+// --- ÄNDERUNG 1: Robustere Proxy-Erkennung ---
+// Vertraue dem X-Forwarded-For Header, der von den Proxys gesetzt wird.
+// Das ist zuverlässiger als die Anzahl der Proxys zu raten.
+app.set("trust proxy", true);
+
 
 // Session Store auf PostgreSQL umstellen
 const PgStore = connectPgSimple(session);
@@ -47,6 +50,11 @@ app.use(
       secure: config.cookieSecure,
       sameSite: "lax",
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 Tage
+      
+      // --- ÄNDERUNG 2: Cookie-Domain explizit setzen ---
+      // Das stellt sicher, dass der Browser das Cookie für die richtige Domain speichert,
+      // auch bei komplexen Proxy-Setups.
+      domain: "casino.der-bierbaron.de",
     },
   })
 );
