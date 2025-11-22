@@ -3,8 +3,12 @@ import { pool, query } from "../db";
 
 export interface Wallet {
   user_id: number;
-  balance: number | string; // zur Laufzeit oft string wegen NUMERIC/BIGINT
+  balance: number | string; // kann als string aus Postgres kommen (NUMERIC/BIGINT)
   last_claim_at: string | null;
+
+  // Optionale Felder für Book-of-Bier-Freispiele
+  free_spins_bob_remaining?: number | null;
+  free_spins_bob_bet?: number | null;
 }
 
 const HOURLY_RATE = 25;
@@ -13,7 +17,9 @@ const CLAIM_INTERVAL_MS = 60 * 60 * 1000; // 1 Stunde
 export async function getWalletForUser(userId: number): Promise<Wallet> {
   const rows = await query<Wallet>(
     `
-    SELECT user_id, balance, last_claim_at
+    SELECT user_id, balance, last_claim_at,
+           free_spins_bob_remaining,
+           free_spins_bob_bet
     FROM wallets
     WHERE user_id = $1
     `,
@@ -24,9 +30,11 @@ export async function getWalletForUser(userId: number): Promise<Wallet> {
     // Fallback, falls aus irgendeinem Grund noch kein Wallet existiert
     const created = await query<Wallet>(
       `
-      INSERT INTO wallets (user_id, balance, last_claim_at)
-      VALUES ($1, 0, NULL)
-      RETURNING user_id, balance, last_claim_at
+      INSERT INTO wallets (user_id, balance, last_claim_at, free_spins_bob_remaining, free_spins_bob_bet)
+      VALUES ($1, 0, NULL, 0, NULL)
+      RETURNING user_id, balance, last_claim_at,
+                free_spins_bob_remaining,
+                free_spins_bob_bet
       `,
       [userId]
     );
@@ -49,7 +57,9 @@ export async function claimHourlyForUser(userId: number): Promise<ClaimResult> {
 
     const res = await client.query<Wallet>(
       `
-      SELECT user_id, balance, last_claim_at
+      SELECT user_id, balance, last_claim_at,
+             free_spins_bob_remaining,
+             free_spins_bob_bet
       FROM wallets
       WHERE user_id = $1
       FOR UPDATE
@@ -61,9 +71,11 @@ export async function claimHourlyForUser(userId: number): Promise<ClaimResult> {
     if (res.rows.length === 0) {
       const inserted = await client.query<Wallet>(
         `
-        INSERT INTO wallets (user_id, balance, last_claim_at)
-        VALUES ($1, 0, NULL)
-        RETURNING user_id, balance, last_claim_at
+        INSERT INTO wallets (user_id, balance, last_claim_at, free_spins_bob_remaining, free_spins_bob_bet)
+        VALUES ($1, 0, NULL, 0, NULL)
+        RETURNING user_id, balance, last_claim_at,
+                  free_spins_bob_remaining,
+                  free_spins_bob_bet
         `,
         [userId]
       );
@@ -110,7 +122,9 @@ export async function claimHourlyForUser(userId: number): Promise<ClaimResult> {
         SET balance = $2,
             last_claim_at = $3
         WHERE user_id = $1
-        RETURNING user_id, balance, last_claim_at
+        RETURNING user_id, balance, last_claim_at,
+                  free_spins_bob_remaining,
+                  free_spins_bob_bet
         `,
         [userId, newBalance, newLastClaim]
       );
