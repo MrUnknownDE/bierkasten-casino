@@ -44,6 +44,9 @@ export interface MeResponse {
   discord_name: string;
   avatar_url: string | null;
   created_at: string;
+  // Wallet-Daten sind jetzt hier enthalten
+  balance: number | null;
+  last_claim_at: string | null;
 }
 
 export interface WalletResponse {

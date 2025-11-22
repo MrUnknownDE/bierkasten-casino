@@ -13,7 +13,7 @@ meRouter.get("/", async (req, res) => {
 
   const [user] = await query(
     `
-    SELECT u.id, u.discord_id, u.discord_name, u.avatar_url,
+    SELECT u.id, u.discord_id, u.discord_name, u.avatar_url, u.created_at,
            w.balance, w.last_claim_at
     FROM users u
     LEFT JOIN wallets w ON w.user_id = u.id
@@ -21,6 +21,12 @@ meRouter.get("/", async (req, res) => {
     `,
     [userId]
   );
+
+  if (!user) {
+    // @ts-ignore
+    req.session.destroy();
+    return res.status(401).json({ error: "User not found, session cleared" });
+  }
 
   res.json(user);
 });
