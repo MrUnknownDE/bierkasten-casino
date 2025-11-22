@@ -34,8 +34,8 @@ jobs:
       - name: Set image names
         id: vars
         run: |
-          echo "backend_image=${{ secrets.DOCKERHUB_USERNAME }}/bierbaron-backend" >> $GITHUB_OUTPUT
-          echo "frontend_image=${{ secrets.DOCKERHUB_USERNAME }}/bierbaron-frontend" >> $GITHUB_OUTPUT
+          echo "backend_image=${{ secrets.DOCKERHUB_USERNAME }}/biercasino-backend" >> $GITHUB_OUTPUT
+          echo "frontend_image=${{ secrets.DOCKERHUB_USERNAME }}/biercasino-frontend" >> $GITHUB_OUTPUT
           echo "sha=${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
       - name: Build and push backend image
