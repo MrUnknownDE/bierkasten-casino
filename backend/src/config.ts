@@ -20,4 +20,6 @@ export const config = {
   sessionSecret: process.env.SESSION_SECRET || "dev-secret",
   frontendOrigin: process.env.FRONTEND_ORIGIN || "http://localhost:5173",
   adminDiscordIds: parseAdminIds(process.env.ADMIN_DISCORD_IDS),
+  // HINZUGEFÜGT: Lese den Wert für Secure-Cookies
+  cookieSecure: process.env.COOKIE_SECURE === "true",
 };

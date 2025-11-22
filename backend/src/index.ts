@@ -34,7 +34,8 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      // KORREKTUR: Wir verwenden jetzt den Wert aus der config.ts
+      secure: config.cookieSecure, 
       sameSite: "lax",
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
