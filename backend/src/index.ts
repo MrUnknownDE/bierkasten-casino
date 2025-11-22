@@ -2,8 +2,8 @@ import express from "express";
 import session from "express-session";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import connectPgSimple from "connect-pg-simple"; // Importieren
-import { pool } from "./db"; // Unser existierender DB-Pool
+import connectPgSimple from "connect-pg-simple";
+import { pool } from "./db";
 import { config } from "./config";
 import { authRouter } from "./routes/auth";
 import { meRouter } from "./routes/me";
@@ -17,14 +17,14 @@ import { adminRouter } from "./routes/admin";
 
 const app = express();
 
-// Reverse Proxy
-app.set("trust proxy", 1);
+// DIE LÖSUNG: Sage Express, dass es ZWEI Proxys vertrauen soll.
+app.set("trust proxy", 2);
 
 // Session Store auf PostgreSQL umstellen
 const PgStore = connectPgSimple(session);
 const sessionStore = new PgStore({
-  pool: pool, // Bestehenden Pool wiederverwenden
-  tableName: "session", // Name der Tabelle in der DB
+  pool: pool,
+  tableName: "session",
   createTableIfMissing: true,
 });
 
@@ -38,7 +38,6 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(
   session({
-    // Den neuen Store hier einfügen
     store: sessionStore,
     secret: config.sessionSecret,
     resave: false,
