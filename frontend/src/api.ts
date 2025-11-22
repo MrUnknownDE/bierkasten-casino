@@ -1,8 +1,6 @@
 const API_BASE =
-  typeof import.meta.env.VITE_API_BASE_URL === "string" &&
-  import.meta.env.VITE_API_BASE_URL.length > 0
-    ? import.meta.env.VITE_API_BASE_URL
-    : "";
+  // Die Variable in docker-compose.yml heißt VITE_API_BASE_URL.
+  import.meta.env.VITE_API_BASE_URL || `http://localhost:3000`;
 
 async function apiGet<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -53,8 +51,6 @@ export interface WalletResponse {
   balance: number;
   last_claim_at: string | null;
   next_claim_in_ms: number;
-  free_spins_bob_remaining: number;
-  free_spins_bob_bet: number | null;
 }
 
 export interface SlotSpinLineWin {
@@ -71,11 +67,6 @@ export interface SlotSpinResponse {
   book_count: number;
   grid: string[][]; // [reel][row]
   line_wins: SlotSpinLineWin[];
-
-  is_free_spin: boolean;
-  free_spins_remaining: number;
-  free_spins_awarded: number;
-  free_spins_bet_amount: number | null;
 }
 
 export interface BalanceLeaderboardEntry {
@@ -107,8 +98,6 @@ export interface AdminUserSummary {
   avatar_url: string | null;
   balance: number;
   last_claim_at: string | null;
-  free_spins_bob_remaining: number;
-  free_spins_bob_bet: number | null;
 }
 
 // --- Auth / User ---
@@ -118,6 +107,7 @@ export async function getMe(): Promise<MeResponse> {
 }
 
 export function getLoginUrl(): string {
+  // Die Route im Backend lautet /auth/discord
   return `${API_BASE}/auth/discord`;
 }
 
@@ -162,7 +152,9 @@ export async function getAdminMe(): Promise<AdminMeResponse> {
 export async function adminFindUserByDiscord(
   discordId: string
 ): Promise<AdminUserSummary> {
-  return apiGet<AdminUserSummary>(`/admin/user/by-discord/${encodeURIComponent(discordId)}`);
+  return apiGet<AdminUserSummary>(
+    `/admin/user/by-discord/${encodeURIComponent(discordId)}`
+  );
 }
 
 export async function adminAdjustBalance(
@@ -178,14 +170,10 @@ export async function adminAdjustBalance(
 
 export async function adminResetWallet(
   userId: number,
-  resetBalanceTo?: number,
-  clearFreeSpins: boolean = true
-): Promise<AdminUserSummary> {
-  return apiPost<AdminUserSummary>(
+  resetBalanceTo?: number
+): Promise<{ user_id: number; balance: number; last_claim_at: string | null }> {
+  return apiPost<{ user_id: number; balance: number; last_claim_at: string | null }>(
     `/admin/user/${userId}/reset-wallet`,
-    {
-      reset_balance_to: resetBalanceTo,
-      clear_free_spins: clearFreeSpins
-    }
+    { reset_balance_to: resetBalanceTo }
   );
 }

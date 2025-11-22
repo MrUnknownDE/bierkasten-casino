@@ -1,6 +1,5 @@
-// path: backend/src/routes/admin.ts
 import { Router } from "express";
-import { query, pool } from "../db";
+import { pool, query } from "../db";
 import { config } from "../config";
 
 export const adminRouter = Router();
@@ -11,7 +10,7 @@ interface SessionUser {
   discord_name: string;
 }
 
-// einfacher Auth-Guard
+// einfacher Auth-Guard (nur Login)
 function requireAuth(req: any, res: any, next: any) {
   const userId = req.session?.userId as number | undefined;
   if (!userId) {
@@ -26,9 +25,9 @@ async function getSessionUser(req: any): Promise<SessionUser | null> {
 
   const rows = await query<SessionUser>(
     `
-    SELECT id, discord_id, discord_name
-    FROM users
-    WHERE id = $1
+      SELECT id, discord_id, discord_name
+      FROM users
+      WHERE id = $1
     `,
     [userId]
   );
@@ -68,7 +67,7 @@ adminRouter.get("/me", requireAuth, async (req: any, res) => {
     res.json({
       is_admin: isAdmin,
       discord_id: user.discord_id,
-      discord_name: user.discord_name
+      discord_name: user.discord_name,
     });
   } catch (err) {
     console.error("GET /admin/me error:", err);
@@ -92,22 +91,18 @@ adminRouter.get(
         avatar_url: string | null;
         balance: number | null;
         last_claim_at: string | null;
-        free_spins_bob_remaining: number | null;
-        free_spins_bob_bet: number | null;
       }>(
         `
-        SELECT
-          u.id AS user_id,
-          u.discord_id,
-          u.discord_name,
-          u.avatar_url,
-          w.balance,
-          w.last_claim_at,
-          w.free_spins_bob_remaining,
-          w.free_spins_bob_bet
-        FROM users u
-        LEFT JOIN wallets w ON w.user_id = u.id
-        WHERE u.discord_id = $1
+          SELECT
+            u.id AS user_id,
+            u.discord_id,
+            u.discord_name,
+            u.avatar_url,
+            w.balance,
+            w.last_claim_at
+          FROM users u
+          LEFT JOIN wallets w ON w.user_id = u.id
+          WHERE u.discord_id = $1
         `,
         [discordId]
       );
@@ -124,8 +119,6 @@ adminRouter.get(
         avatar_url: row.avatar_url,
         balance: row.balance ?? 0,
         last_claim_at: row.last_claim_at,
-        free_spins_bob_remaining: row.free_spins_bob_remaining ?? 0,
-        free_spins_bob_bet: row.free_spins_bob_bet
       });
     } catch (err) {
       console.error("GET /admin/user/by-discord error:", err);
@@ -164,10 +157,10 @@ adminRouter.post(
         balance: number;
       }>(
         `
-        SELECT user_id, balance
-        FROM wallets
-        WHERE user_id = $1
-        FOR UPDATE
+          SELECT user_id, balance
+          FROM wallets
+          WHERE user_id = $1
+          FOR UPDATE
         `,
         [userId]
       );
@@ -180,9 +173,9 @@ adminRouter.post(
           balance: number;
         }>(
           `
-          INSERT INTO wallets (user_id, balance, last_claim_at, free_spins_bob_remaining, free_spins_bob_bet)
-          VALUES ($1, 0, NULL, 0, NULL)
-          RETURNING user_id, balance
+            INSERT INTO wallets (user_id, balance, last_claim_at)
+            VALUES ($1, 0, NULL)
+            RETURNING user_id, balance
           `,
           [userId]
         );
@@ -198,18 +191,18 @@ adminRouter.post(
         balance: number;
       }>(
         `
-        UPDATE wallets
-        SET balance = $2
-        WHERE user_id = $1
-        RETURNING user_id, balance
+          UPDATE wallets
+          SET balance = $2
+          WHERE user_id = $1
+          RETURNING user_id, balance
         `,
         [userId, newBalance]
       );
 
       await client.query(
         `
-        INSERT INTO wallet_transactions (user_id, amount, reason)
-        VALUES ($1, $2, $3)
+          INSERT INTO wallet_transactions (user_id, amount, reason)
+          VALUES ($1, $2, $3)
         `,
         [userId, amount, `admin:${reason}`]
       );
@@ -218,7 +211,7 @@ adminRouter.post(
 
       res.json({
         user_id: updated.rows[0].user_id,
-        balance: updated.rows[0].balance
+        balance: updated.rows[0].balance,
       });
     } catch (err) {
       await client.query("ROLLBACK");
@@ -231,15 +224,13 @@ adminRouter.post(
 );
 
 // POST /admin/user/:userId/reset-wallet
-// Body (optional): { reset_balance_to?: number, clear_free_spins?: boolean }
+// Body (optional): { reset_balance_to?: number }
 adminRouter.post(
   "/user/:userId/reset-wallet",
   requireAdmin,
   async (req: any, res) => {
     const userId = parseInt(req.params.userId, 10);
     const rawTarget = req.body?.reset_balance_to;
-    const clearFreeSpins = req.body?.clear_free_spins !== false; // default: true
-
     const targetBalance =
       rawTarget === undefined ? 0 : Number(rawTarget);
 
@@ -259,27 +250,23 @@ adminRouter.post(
         user_id: number;
         balance: number;
         last_claim_at: string | null;
-        free_spins_bob_remaining: number;
-        free_spins_bob_bet: number | null;
       }>(
         `
-        INSERT INTO wallets (user_id, balance, last_claim_at, free_spins_bob_remaining, free_spins_bob_bet)
-        VALUES ($1, $2, NULL, 0, NULL)
-        ON CONFLICT (user_id)
-        DO UPDATE SET
-          balance = EXCLUDED.balance,
-          last_claim_at = NULL,
-          free_spins_bob_remaining = CASE WHEN $3 THEN 0 ELSE wallets.free_spins_bob_remaining END,
-          free_spins_bob_bet = CASE WHEN $3 THEN NULL ELSE wallets.free_spins_bob_bet END
-        RETURNING user_id, balance, last_claim_at, free_spins_bob_remaining, free_spins_bob_bet
+          INSERT INTO wallets (user_id, balance, last_claim_at)
+          VALUES ($1, $2, NULL)
+          ON CONFLICT (user_id)
+          DO UPDATE SET
+            balance = EXCLUDED.balance,
+            last_claim_at = NULL
+          RETURNING user_id, balance, last_claim_at
         `,
-        [userId, targetBalance, clearFreeSpins]
+        [userId, targetBalance]
       );
 
       await client.query(
         `
-        INSERT INTO wallet_transactions (user_id, amount, reason)
-        VALUES ($1, 0, $2)
+          INSERT INTO wallet_transactions (user_id, amount, reason)
+          VALUES ($1, 0, $2)
         `,
         [userId, "admin:reset_wallet"]
       );

@@ -8,7 +8,10 @@ import { authRouter } from "./routes/auth";
 import { meRouter } from "./routes/me";
 import { walletRouter } from "./routes/wallet";
 import { slotRouter } from "./routes/slot";
-import { BalanceLeaderboardEntry, BigWinLeaderboardEntry } from "./routes/leaderboard";
+import {
+  BalanceLeaderboardEntry,
+  BigWinLeaderboardEntry,
+} from "./routes/leaderboard";
 import { adminRouter } from "./routes/admin";
 
 const app = express();
@@ -19,7 +22,7 @@ app.set("trust proxy", 1);
 app.use(
   cors({
     origin: config.frontendOrigin,
-    credentials: true
+    credentials: true,
   })
 );
 app.use(express.json());
@@ -33,8 +36,8 @@ app.use(
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 1000 * 60 * 60 * 24 * 7
-    }
+      maxAge: 1000 * 60 * 60 * 24 * 7,
+    },
   })
 );
 

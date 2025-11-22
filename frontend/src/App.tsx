@@ -246,7 +246,7 @@ const App: React.FC = () => {
   const [lbLoading, setLbLoading] = useState(false);
   const [lbError, setLbError] = useState<string | null>(null);
 
-  // Admin-UI-States
+  // Admin-States
   const [adminInfo, setAdminInfo] = useState<AdminMeResponse | null>(null);
   const [adminChecked, setAdminChecked] = useState(false);
   const [adminSearchDiscordId, setAdminSearchDiscordId] = useState("");
@@ -285,30 +285,12 @@ const App: React.FC = () => {
       if (!displayGrid) {
         setDisplayGrid(createRandomGrid());
       }
-
-      // Admin-Status prüfen, wenn eingeloggt
-      if (meRes) {
-        try {
-          const admin = await getAdminMe();
-          if (admin.is_admin) {
-            setAdminInfo(admin);
-          } else {
-            setAdminInfo(null);
-          }
-        } catch {
-          setAdminInfo(null);
-        }
-      } else {
-        setAdminInfo(null);
-      }
-      setAdminChecked(true);
     } catch (err: any) {
       setState((prev) => ({
         ...prev,
         loading: false,
         error: err.message || "Fehler beim Laden",
       }));
-      setAdminChecked(true);
     }
   }
 
@@ -362,6 +344,26 @@ const App: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me]);
 
+  // Admin-Status nach Login prüfen
+  useEffect(() => {
+    const checkAdmin = async () => {
+      if (!me) {
+        setAdminInfo(null);
+        setAdminChecked(true);
+        return;
+      }
+      try {
+        const res = await getAdminMe();
+        setAdminInfo(res.is_admin ? res : null);
+      } catch {
+        setAdminInfo(null);
+      } finally {
+        setAdminChecked(true);
+      }
+    };
+    checkAdmin();
+  }, [me]);
+
   const handleLogin = () => {
     window.location.href = getLoginUrl();
   };
@@ -382,6 +384,7 @@ const App: React.FC = () => {
       setAdminInfo(null);
       setAdminUser(null);
       setAdminChecked(false);
+      setAdminError(null);
     } catch (err: any) {
       setState((prev) => ({
         ...prev,
@@ -401,8 +404,6 @@ const App: React.FC = () => {
           balance: res.balance,
           last_claim_at: res.last_claim_at,
           next_claim_in_ms: res.next_claim_in_ms,
-          free_spins_bob_remaining: res.free_spins_bob_remaining,
-          free_spins_bob_bet: res.free_spins_bob_bet,
         },
       }));
       // Claim kann Leaderboard ändern
@@ -458,26 +459,17 @@ const App: React.FC = () => {
     const { wallet } = state;
     if (!wallet) return;
 
-    const hasFreeSpins = wallet.free_spins_bob_remaining > 0;
-    const effectiveBetForDisplay =
-      hasFreeSpins && wallet.free_spins_bob_bet
-        ? wallet.free_spins_bob_bet
-        : slotBet;
+    if (slotBet <= 0) {
+      setState((prev) => ({ ...prev, error: "Einsatz muss > 0 sein" }));
+      return;
+    }
 
-    if (!hasFreeSpins) {
-      // Nur bei normalen Spins: Validierung
-      if (slotBet <= 0) {
-        setState((prev) => ({ ...prev, error: "Einsatz muss > 0 sein" }));
-        return;
-      }
-
-      if (slotBet > wallet.balance) {
-        setState((prev) => ({
-          ...prev,
-          error: "Nicht genug Bierkästen für diesen Einsatz",
-        }));
-        return;
-      }
+    if (slotBet > wallet.balance) {
+      setState((prev) => ({
+        ...prev,
+        error: "Nicht genug Bierkästen für diesen Einsatz",
+      }));
+      return;
     }
 
     setSlotSpinning(true);
@@ -498,7 +490,7 @@ const App: React.FC = () => {
     }, 70);
 
     try {
-      const res = await spinBookOfBier(effectiveBetForDisplay);
+      const res = await spinBookOfBier(slotBet);
       pendingResultRef.current = res;
 
       const start = spinStartTimeRef.current || Date.now();
@@ -507,7 +499,7 @@ const App: React.FC = () => {
 
       // Walzen nacheinander stoppen 0..4
       for (let reelIndex = 0; reelIndex < 5; reelIndex++) {
-        const delay = baseDelay + reelIndex * REEL_STOP_STEPMS;
+        const delay = baseDelay + reelIndex * REEL_STOP_STEP_MS;
 
         window.setTimeout(() => {
           const result = pendingResultRef.current;
@@ -543,8 +535,6 @@ const App: React.FC = () => {
                     wallet: {
                       ...prev.wallet,
                       balance: result.balance_after,
-                      free_spins_bob_remaining: result.free_spins_remaining,
-                      free_spins_bob_bet: result.free_spins_bet_amount,
                     },
                   }
                 : prev
@@ -576,11 +566,6 @@ const App: React.FC = () => {
   const gridToShow = displayGrid;
   const isBigWin =
     lastSpin && lastSpin.win_amount >= lastSpin.bet_amount * 20; // Schwelle justierbar
-
-  const hasFreeSpins =
-    wallet && wallet.free_spins_bob_remaining && wallet.free_spins_bob_remaining > 0;
-  const freeSpinBet =
-    hasFreeSpins && wallet?.free_spins_bob_bet ? wallet.free_spins_bob_bet : null;
 
   // --- Admin-Handler ---
 
@@ -621,7 +606,7 @@ const App: React.FC = () => {
 
       const newUser: AdminUserSummary = {
         ...adminUser,
-        balance: res.balance
+        balance: res.balance,
       };
       setAdminUser(newUser);
 
@@ -633,8 +618,8 @@ const App: React.FC = () => {
                 ...prev,
                 wallet: {
                   ...prev.wallet,
-                  balance: res.balance
-                }
+                  balance: res.balance,
+                },
               }
             : prev
         );
@@ -652,13 +637,11 @@ const App: React.FC = () => {
     setAdminBusy(true);
     setAdminError(null);
     try {
-      const res = await adminResetWallet(adminUser.user_id, 0, true);
+      const res = await adminResetWallet(adminUser.user_id, 0);
       setAdminUser({
         ...adminUser,
         balance: res.balance,
         last_claim_at: res.last_claim_at,
-        free_spins_bob_remaining: res.free_spins_bob_remaining,
-        free_spins_bob_bet: res.free_spins_bob_bet
       });
 
       if (wallet && wallet.user_id === res.user_id) {
@@ -670,9 +653,7 @@ const App: React.FC = () => {
                   ...prev.wallet,
                   balance: res.balance,
                   last_claim_at: res.last_claim_at,
-                  free_spins_bob_remaining: res.free_spins_bob_remaining,
-                  free_spins_bob_bet: res.free_spins_bob_bet
-                }
+                },
               }
             : prev
         );
@@ -809,10 +790,612 @@ const App: React.FC = () => {
 
         {me && wallet && (
           <>
-            {/* Top-Karten leicht zentriert */}
-            {/* ... (DEIN BISHERIGER WALLET- & BOOK-OF-BIER-BLOCK, UNVERÄNDERT) ... */}
-            {/* Aus Platzgründen oben gekürzt – hier bleibt dein bestehender Code exakt so,
-                inkl. Freispiel-Logik, Grid, Leaderboard usw. */}
+            {/* Top-Karten: Wallet + Claim */}
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                justifyContent: "center",
+                gap: "16px",
+                alignItems: "stretch",
+                marginBottom: 10,
+              }}
+            >
+              <div
+                style={{
+                  flex: "1 1 260px",
+                  maxWidth: 380,
+                  padding: "16px",
+                  borderRadius: 12,
+                  background: "linear-gradient(145deg, #171725, #11111b)",
+                  border: "1px solid rgba(255,255,255,0.04)",
+                }}
+              >
+                <h2
+                  style={{
+                    marginTop: 0,
+                    fontSize: "1.1rem",
+                    textAlign: "center",
+                  }}
+                >
+                  Dein Bierkonto
+                </h2>
+                <p
+                  style={{
+                    fontSize: "2.4rem",
+                    margin: "4px 0 8px",
+                    textAlign: "center",
+                  }}
+                >
+                  {wallet.balance.toLocaleString("de-DE")}{" "}
+                  <span style={{ fontSize: "1.1rem", color: "#ccc" }}>
+                    Bierkästen
+                  </span>
+                </p>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "#aaa",
+                    textAlign: "center",
+                  }}
+                >
+                  Letzter Claim:{" "}
+                  {wallet.last_claim_at
+                    ? new Date(wallet.last_claim_at).toLocaleString("de-DE")
+                    : "noch nie"}
+                </p>
+              </div>
+
+              <div
+                style={{
+                  flex: "1 1 260px",
+                  maxWidth: 320,
+                  padding: "16px",
+                  borderRadius: 12,
+                  background: "linear-gradient(145deg, #191926, #131320)",
+                  border: "1px solid rgba(255,255,255,0.04)",
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "space-between",
+                }}
+              >
+                <div style={{ textAlign: "center" }}>
+                  <h3 style={{ marginTop: 0, fontSize: "1rem" }}>
+                    Stündlicher Claim
+                  </h3>
+                  <p
+                    style={{
+                      fontSize: "0.9rem",
+                      color: "#ccc",
+                      marginBottom: 8,
+                    }}
+                  >
+                    Alle volle Stunde: <b>+25 Bierkästen</b>.
+                  </p>
+                  <p style={{ fontSize: "0.85rem", color: "#aaa" }}>
+                    Nächster Claim:{" "}
+                    <b>{formatMs(wallet.next_claim_in_ms)}</b>
+                  </p>
+                </div>
+
+                <button
+                  onClick={handleClaim}
+                  disabled={claiming || wallet.next_claim_in_ms > 0}
+                  style={{
+                    marginTop: 12,
+                    padding: "10px 14px",
+                    borderRadius: 999,
+                    border: "none",
+                    background:
+                      claiming || wallet.next_claim_in_ms > 0
+                        ? "#444"
+                        : "linear-gradient(135deg, #ffb347, #ffcc33)",
+                    color: claiming || wallet.next_claim_in_ms > 0 ? "#999" : "#222",
+                    fontWeight: 600,
+                    cursor:
+                      claiming || wallet.next_claim_in_ms > 0
+                        ? "default"
+                        : "pointer",
+                    fontSize: "0.95rem",
+                  }}
+                >
+                  {claiming
+                    ? "Claim läuft..."
+                    : wallet.next_claim_in_ms > 0
+                    ? "Noch nicht bereit"
+                    : "Bierkästen claimen 🍺"}
+                </button>
+              </div>
+            </div>
+
+            {/* Book of Bier Section */}
+            <div
+              style={{
+                marginTop: 10,
+                padding: "18px 16px 20px",
+                borderRadius: 12,
+                background: "linear-gradient(145deg, #191926, #131320)",
+                border: "1px solid rgba(255,255,255,0.04)",
+                textAlign: "center",
+              }}
+            >
+              <h2 style={{ marginTop: 0, fontSize: "1.2rem" }}>🎰 Book of Bier</h2>
+              <p style={{ fontSize: "0.9rem", color: "#ccc", marginBottom: 14 }}>
+                5 Walzen, 3 Reihen, 10 Gewinnlinien. <b>BOOK</b> (
+                {renderSymbol("BOOK")}) ist Scatter: 3+ Bücher geben
+                Bonus-Gewinne.
+              </p>
+
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 12,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginBottom: 16,
+                }}
+              >
+                <div style={{ fontSize: "0.9rem" }}>
+                  Einsatz:&nbsp;
+                  <input
+                    type="number"
+                    min={1}
+                    max={1000}
+                    value={slotBet}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      const v = parseInt(e.target.value || "0", 10);
+                      setSlotBet(Number.isFinite(v) ? v : 0);
+                    }}
+                    style={{
+                      width: 90,
+                      padding: "4px 6px",
+                      borderRadius: 6,
+                      border: "1px solid #555",
+                      background: "#090910",
+                      color: "#f5f5f5",
+                      textAlign: "center",
+                    }}
+                  />{" "}
+                  Bierkästen
+                </div>
+
+                <button
+                  onClick={handleSpin}
+                  disabled={slotSpinning || wallet.balance <= 0}
+                  style={{
+                    padding: "9px 18px",
+                    borderRadius: 999,
+                    border: "none",
+                    background: slotSpinning
+                      ? "#444"
+                      : "linear-gradient(135deg, #ff6b6b, #f9d976)",
+                    color: slotSpinning ? "#aaa" : "#222",
+                    fontWeight: 600,
+                    cursor: slotSpinning ? "default" : "pointer",
+                    fontSize: "1rem",
+                    transform: slotSpinning ? "scale(1.05)" : "scale(1)",
+                    boxShadow: slotSpinning
+                      ? "0 0 18px rgba(255,255,255,0.6)"
+                      : "none",
+                    transition:
+                      "transform 0.15s ease-out, box-shadow 0.15s ease-out",
+                  }}
+                >
+                  {slotSpinning ? "Rollen..." : "Spin starten 🎰"}
+                </button>
+
+                <div style={{ fontSize: "0.85rem", color: "#aaa" }}>
+                  Kontostand:{" "}
+                  <b>{wallet.balance.toLocaleString("de-DE")}</b> Bierkästen
+                </div>
+              </div>
+
+              {gridToShow ? (
+                <div style={{ marginTop: 4 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 18,
+                      alignItems: "flex-start",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          fontSize: "0.95rem",
+                          marginBottom: 6,
+                          textAlign: "center",
+                        }}
+                      >
+                        Letzter Spin:
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(5, 56px)",
+                          gridTemplateRows: "repeat(3, 56px)",
+                          gap: 6,
+                          padding: 8,
+                          background: "#0a0a12",
+                          borderRadius: 10,
+                          border: "1px solid rgba(255,255,255,0.06)",
+                          transform: slotSpinning
+                            ? "translateY(2px)"
+                            : "translateY(0)",
+                          transition: "transform 0.1s linear",
+                        }}
+                      >
+                        {[0, 1, 2].map((row) =>
+                          [0, 1, 2, 3, 4].map((col) => {
+                            const key = `${col}-${row}`;
+                            const isWinningCell =
+                              !slotSpinning && winningPositions.has(key);
+                            const isBookCell =
+                              !slotSpinning &&
+                              lastSpin &&
+                              lastSpin.grid[col][row] === "BOOK";
+
+                            return (
+                              <div
+                                key={key}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  fontSize: "1.6rem",
+                                  borderRadius: 8,
+                                  border: isWinningCell
+                                    ? "1px solid rgba(255,215,0,0.9)"
+                                    : "1px solid rgba(255,255,255,0.08)",
+                                  boxShadow: isWinningCell
+                                    ? "0 0 18px rgba(255,215,0,0.9)"
+                                    : "none",
+                                  background: isWinningCell
+                                    ? "radial-gradient(circle, rgba(255,215,0,0.22) 0, transparent 60%)"
+                                    : isBookCell
+                                    ? "radial-gradient(circle, rgba(173,216,230,0.25) 0, transparent 60%)"
+                                    : "transparent",
+                                  transform: isWinningCell
+                                    ? "scale(1.22)"
+                                    : isBookCell
+                                    ? "scale(1.1)"
+                                    : "scale(1)",
+                                  transition:
+                                    "transform 0.18s ease-out, box-shadow 0.18s ease-out, background 0.18s ease-out, border-color 0.18s ease-out",
+                                }}
+                              >
+                                {renderSymbol(gridToShow[col][row])}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+
+                    {lastSpin && (
+                      <div
+                        style={{
+                          fontSize: "0.9rem",
+                          minWidth: 230,
+                          textAlign: "left",
+                        }}
+                      >
+                        <p style={{ margin: "4px 0" }}>
+                          Einsatz: <b>{lastSpin.bet_amount}</b>
+                        </p>
+                        <p style={{ margin: "4px 0" }}>
+                          Gewinn:{" "}
+                          <b
+                            style={{
+                              color:
+                                lastSpin.win_amount > 0 ? "#7CFC00" : "#ff9d9d",
+                              fontSize:
+                                lastSpin.win_amount >=
+                                lastSpin.bet_amount * 10
+                                  ? "1.2rem"
+                                  : "1rem",
+                            }}
+                          >
+                            {lastSpin.win_amount}
+                          </b>
+                        </p>
+                        <p style={{ margin: "4px 0" }}>
+                          Bücher im Feld: <b>{lastSpin.book_count}</b>
+                        </p>
+                        {lastSpin.line_wins.length > 0 ? (
+                          <div style={{ marginTop: 6 }}>
+                            <div
+                              style={{
+                                fontSize: "0.85rem",
+                                marginBottom: 4,
+                              }}
+                            >
+                              Liniengewinne:
+                            </div>
+                            <ul
+                              style={{
+                                margin: 0,
+                                paddingLeft: 18,
+                                fontSize: "0.8rem",
+                              }}
+                            >
+                              {lastSpin.line_wins.map((lw, idx) => (
+                                <li key={idx}>
+                                  Linie {lw.lineIndex + 1}: {lw.count}x{" "}
+                                  {lw.symbol} → {lw.win}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : (
+                          <p
+                            style={{
+                              fontSize: "0.8rem",
+                              color: "#999",
+                              marginTop: 6,
+                            }}
+                          >
+                            Keine Liniengewinne in diesem Spin.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p style={{ fontSize: "0.85rem", color: "#aaa", marginTop: 8 }}>
+                  Noch kein Spin – leg los und teste das Buch des Biers. 🍻
+                </p>
+              )}
+            </div>
+
+            {/* Leaderboard Section */}
+            <div
+              style={{
+                marginTop: 24,
+                padding: "16px",
+                borderRadius: 12,
+                background: "linear-gradient(145deg, #141424, #10101b)",
+                border: "1px solid rgba(255,255,255,0.04)",
+              }}
+            >
+              <h2
+                style={{
+                  marginTop: 0,
+                  marginBottom: 10,
+                  fontSize: "1.1rem",
+                  textAlign: "center",
+                }}
+              >
+                🏆 Bierbaron Leaderboards
+              </h2>
+
+              {lbLoading && (
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "#aaa",
+                    textAlign: "center",
+                  }}
+                >
+                  Lade Bestenlisten...
+                </p>
+              )}
+
+              {lbError && (
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "#ff9d9d",
+                    textAlign: "center",
+                    marginBottom: 8,
+                  }}
+                >
+                  {lbError}
+                </p>
+              )}
+
+              {!lbLoading && !lbError && (
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 16,
+                    justifyContent: "center",
+                    alignItems: "flex-start",
+                  }}
+                >
+                  {/* Top Kontostand */}
+                  <div
+                    style={{
+                      flex: "1 1 260px",
+                      maxWidth: 380,
+                      background: "rgba(0,0,0,0.35)",
+                      borderRadius: 10,
+                      padding: "10px 12px",
+                      border: "1px solid rgba(255,255,255,0.05)",
+                    }}
+                  >
+                    <h3
+                      style={{
+                        margin: 0,
+                        marginBottom: 8,
+                        fontSize: "0.95rem",
+                        textAlign: "center",
+                      }}
+                    >
+                      💰 Meiste Bierkästen (Top 20)
+                    </h3>
+                    {balanceLb && balanceLb.length > 0 ? (
+                      <ol
+                        style={{
+                          margin: 0,
+                          paddingLeft: 18,
+                          fontSize: "0.85rem",
+                          maxHeight: 260,
+                          overflowY: "auto",
+                        }}
+                      >
+                        {balanceLb.map((entry) => (
+                          <li
+                            key={entry.user_id}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: 8,
+                              padding: "2px 0",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                              }}
+                            >
+                              {entry.avatar_url && (
+                                <img
+                                  src={entry.avatar_url}
+                                  alt=""
+                                  style={{
+                                    width: 20,
+                                    height: 20,
+                                    borderRadius: "50%",
+                                  }}
+                                />
+                              )}
+                              <span
+                                style={{
+                                  maxWidth: 140,
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                }}
+                              >
+                                {entry.discord_name}
+                              </span>
+                            </div>
+                            <span
+                              style={{ fontVariantNumeric: "tabular-nums" }}
+                            >
+                              {entry.balance.toLocaleString("de-DE")} 🍺
+                            </span>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <p
+                        style={{
+                          fontSize: "0.8rem",
+                          color: "#888",
+                          textAlign: "center",
+                          marginTop: 6,
+                        }}
+                      >
+                        Noch keine Daten.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Größter Einzelgewinn */}
+                  <div
+                    style={{
+                      flex: "1 1 260px",
+                      maxWidth: 380,
+                      background: "rgba(0,0,0,0.35)",
+                      borderRadius: 10,
+                      padding: "10px 12px",
+                      border: "1px solid rgba(255,255,255,0.05)",
+                    }}
+                  >
+                    <h3
+                      style={{
+                        margin: 0,
+                        marginBottom: 8,
+                        fontSize: "0.95rem",
+                        textAlign: "center",
+                      }}
+                    >
+                      💥 Größter Einzelgewinn (Top 20)
+                    </h3>
+                    {bigWinLb && bigWinLb.length > 0 ? (
+                      <ol
+                        style={{
+                          margin: 0,
+                          paddingLeft: 18,
+                          fontSize: "0.85rem",
+                          maxHeight: 260,
+                          overflowY: "auto",
+                        }}
+                      >
+                        {bigWinLb.map((entry) => (
+                          <li
+                            key={entry.user_id}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: 8,
+                              padding: "2px 0",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                              }}
+                            >
+                              {entry.avatar_url && (
+                                <img
+                                  src={entry.avatar_url}
+                                  alt=""
+                                  style={{
+                                    width: 20,
+                                    height: 20,
+                                    borderRadius: "50%",
+                                  }}
+                                />
+                              )}
+                              <span
+                                style={{
+                                  maxWidth: 140,
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                }}
+                              >
+                                {entry.discord_name}
+                              </span>
+                            </div>
+                            <span
+                              style={{ fontVariantNumeric: "tabular-nums" }}
+                            >
+                              {entry.biggest_win.toLocaleString("de-DE")} 🍺
+                            </span>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <p
+                        style={{
+                          fontSize: "0.8rem",
+                          color: "#888",
+                          textAlign: "center",
+                          marginTop: 6,
+                        }}
+                      >
+                        Noch keine Gewinne geloggt.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* --- Admin-Bereich --- */}
             {adminChecked && adminInfo?.is_admin && (
@@ -987,13 +1570,6 @@ const App: React.FC = () => {
                               ).toLocaleString("de-DE")
                             : "noch nie"}
                         </div>
-                        <div style={{ marginTop: 2, color: "#ffd700" }}>
-                          Freispiele:{" "}
-                          <b>{adminUser.free_spins_bob_remaining}</b>{" "}
-                          {adminUser.free_spins_bob_bet
-                            ? `(Einsatz: ${adminUser.free_spins_bob_bet})`
-                            : ""}
-                        </div>
                       </div>
                     )}
                   </div>
@@ -1025,9 +1601,7 @@ const App: React.FC = () => {
                           type="number"
                           value={adminAdjustAmount}
                           onChange={(e) =>
-                            setAdminAdjustAmount(
-                              Number(e.target.value || 0)
-                            )
+                            setAdminAdjustAmount(Number(e.target.value || 0))
                           }
                           style={{
                             flex: 1,
@@ -1087,7 +1661,7 @@ const App: React.FC = () => {
                           cursor: adminBusy ? "default" : "pointer",
                         }}
                       >
-                        Wallet zurücksetzen (0 Bierkästen, keine Freispiele)
+                        Wallet zurücksetzen (0 Bierkästen)
                       </button>
                     </div>
                   )}
