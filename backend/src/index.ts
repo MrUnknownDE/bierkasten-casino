@@ -1,4 +1,3 @@
-// backend/src/index.ts
 import express from "express";
 import session from "express-session";
 import cors from "cors";
@@ -13,10 +12,7 @@ import { BalanceLeaderboardEntry, BigWinLeaderboardEntry} from "./routes/leaderb
 
 const app = express();
 
-// --- KORREKTUR: Reverse Proxy ---
-// Dem Server mitteilen, dass er hinter einem Proxy läuft (z.B. Nginx).
-// '1' bedeutet, dass wir dem ersten vorgeschalteten Proxy vertrauen.
-// Dies ist entscheidend, damit `req.secure` und `req.protocol` korrekt funktionieren.
+// Reverse Proxy (NGINX) vertrauen
 app.set("trust proxy", 1);
 
 app.use(cors({
@@ -32,12 +28,8 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      // --- KORREKTUR: Reverse Proxy ---
-      // Das Cookie wird nur über HTTPS gesendet, wenn die App in Produktion läuft.
-      // Die `trust proxy` Einstellung oben sorgt dafür, dass dies auch hinter
-      // einem HTTPS-Proxy korrekt erkannt wird.
-      secure: process.env.NODE_ENV === "production",
-      // 'lax' ist ein guter Standard für die SameSite-Policy.
+      // WICHTIG: per ENV steuerbar, nicht stumpf NODE_ENV
+      secure: config.cookieSecure,
       sameSite: "lax",
       maxAge: 1000 * 60 * 60 * 24 * 7
     }

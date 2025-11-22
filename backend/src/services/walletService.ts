@@ -1,3 +1,4 @@
+// path: backend/src/services/walletService.ts
 import { pool, query } from "../db";
 
 export interface Wallet {
@@ -8,6 +9,10 @@ export interface Wallet {
 
 const HOURLY_RATE = 25;
 const CLAIM_INTERVAL_MS = 60 * 60 * 1000; // 1 Stunde
+
+// Begrenzung: maximal so viele Stunden werden nachträglich gutgeschrieben.
+// Beispiel: 24 => max 24 * 25 = 600 Bierkästen pro Claim.
+const MAX_OFFLINE_HOURS = 24;
 
 export async function getWalletForUser(userId: number): Promise<Wallet> {
   const rows = await query<Wallet>(
@@ -82,10 +87,16 @@ export async function claimHourlyForUser(userId: number): Promise<ClaimResult> {
       claimedAmount = HOURLY_RATE;
     } else {
       const diffMs = now.getTime() - lastClaim.getTime();
-      const intervals = Math.floor(diffMs / CLAIM_INTERVAL_MS); // volle Stunden
 
-      if (intervals >= 1) {
-        claimedAmount = intervals * HOURLY_RATE;
+      if (diffMs >= CLAIM_INTERVAL_MS) {
+        const rawIntervals = Math.floor(diffMs / CLAIM_INTERVAL_MS);
+        // Begrenzung, um Unreal-Sprünge (75k etc.) zu verhindern
+        const effectiveIntervals = Math.min(rawIntervals, MAX_OFFLINE_HOURS);
+
+        claimedAmount = effectiveIntervals * HOURLY_RATE;
+
+        // Nach einem erfolgreichen Claim: nächster in 1h
+        nextClaimInMs = CLAIM_INTERVAL_MS;
       } else {
         claimedAmount = 0;
         nextClaimInMs = CLAIM_INTERVAL_MS - diffMs;

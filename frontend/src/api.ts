@@ -1,10 +1,8 @@
-// frontend/src/api.ts
-// API-Calls (JSON)
 const API_BASE =
-  // --- KORREKTUR: Falscher Variablenname ---
-  // Die Variable in docker-compose.yml heißt VITE_API_BASE_URL.
-  import.meta.env.VITE_API_BASE_URL ||
-  `http://localhost:3000`;
+  typeof import.meta.env.VITE_API_BASE_URL === "string" &&
+  import.meta.env.VITE_API_BASE_URL.length > 0
+    ? import.meta.env.VITE_API_BASE_URL
+    : "";
 
 async function apiGet<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -94,8 +92,7 @@ export async function getMe(): Promise<MeResponse> {
 }
 
 export function getLoginUrl(): string {
-  // --- KORREKTUR: Falsche Login-URL ---
-  // Die Route im Backend lautet /auth/discord, nicht /auth/login/discord.
+  // Route im Backend: /auth/discord
   return `${API_BASE}/auth/discord`;
 }
 
