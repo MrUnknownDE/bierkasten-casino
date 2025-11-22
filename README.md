@@ -92,7 +92,7 @@ Es gibt **kein echtes Geld**, **keine Auszahlungen**, **kein Glücksspiel**, son
 ### 1. Repository klonen
 
 ```bash
-git clone https://github.com/DEINUSERNAME/bierbaron-casino.git
+git clone https://github.com/mrunknownde/bierbaron-casino.git
 cd bierbaron-casino
 ````
 
@@ -267,16 +267,4 @@ Dieses Projekt steht unter einer freien Lizenz deiner Wahl (MIT empfohlen).
 ## 🤝 Kontakt
 
 Für Fragen, Ideen oder Austausch:
-GitHub Issues oder Discord-Kontakt (falls angegeben).
-
----
-
-Wenn du willst, kann ich dir noch:
-
-✅ ein Logo bauen
-✅ Shields-Badges hinzufügen
-✅ eine Dev-Architektur-Grafik zeichnen
-✅ eine Prod-Optimierte docker-compose.prod.yml generieren
-✅ einen automatisierten Build über GitHub Actions einbauen
-
-Sag einfach Bescheid!
+GitHub Issues oder Discord-Kontakt.
