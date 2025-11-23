@@ -19,6 +19,8 @@ import {
   adminResetWallet,
   AdminMeResponse,
   AdminUserSummary,
+  adminSearchUsers,
+  AdminUserSearchResult,
 } from "./api";
 
 interface State {
@@ -249,7 +251,9 @@ const App: React.FC = () => {
   // Admin-States
   const [adminInfo, setAdminInfo] = useState<AdminMeResponse | null>(null);
   const [adminChecked, setAdminChecked] = useState(false);
-  const [adminSearchDiscordId, setAdminSearchDiscordId] = useState("");
+  const [adminSearchQuery, setAdminSearchQuery] = useState("");
+  const [adminSearchResults, setAdminSearchResults] = useState<AdminUserSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const [adminUser, setAdminUser] = useState<AdminUserSummary | null>(null);
   const [adminAdjustAmount, setAdminAdjustAmount] = useState<number>(0);
   const [adminAdjustReason, setAdminAdjustReason] = useState<string>("");
@@ -269,19 +273,10 @@ const App: React.FC = () => {
     try {
       setState((prev) => ({ ...prev, loading: true, error: null }));
 
-      // --- HINZUGEFÜGT: Loggen, was der Browser weiß ---
-      console.log("[FRONTEND] Starting loadAll. Current browser cookies:", document.cookie);
-      
       const [meRes, walletRes] = await Promise.all([
-        getMe().catch((err) => {
-          // --- HINZUGEFÜGT: Fehler beim /me-Aufruf loggen ---
-          console.error("[FRONTEND] API call to getMe() failed:", err);
-          return null;
-        }),
+        getMe().catch(() => null),
         getWallet().catch(() => null),
       ]);
-
-      console.log("[FRONTEND] API calls finished. User data received:", meRes);
 
       setState((prev) => ({
         ...prev,
@@ -578,19 +573,41 @@ const App: React.FC = () => {
 
   // --- Admin-Handler ---
 
-  const handleAdminSearch = async () => {
-    if (!adminInfo?.is_admin) return;
-    if (!adminSearchDiscordId.trim()) return;
+  // Debounce-Logik für die Suche
+  useEffect(() => {
+    if (adminSearchQuery.trim().length < 2) {
+      setAdminSearchResults([]);
+      return;
+    }
 
+    const debounceTimer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const results = await adminSearchUsers(adminSearchQuery);
+        setAdminSearchResults(results);
+      } catch (err: any) {
+        setAdminError(err.message || "Suche fehlgeschlagen");
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(debounceTimer);
+  }, [adminSearchQuery]);
+
+  const handleSelectUser = async (user: AdminUserSearchResult) => {
     setAdminBusy(true);
     setAdminError(null);
+    setAdminSearchQuery(user.discord_name);
+    setAdminSearchResults([]);
+
     try {
-      const user = await adminFindUserByDiscord(adminSearchDiscordId.trim());
-      setAdminUser(user);
+      const fullUserData = await adminFindUserByDiscord(user.discord_id);
+      setAdminUser(fullUserData);
       setAdminAdjustAmount(0);
       setAdminAdjustReason("");
     } catch (err: any) {
-      setAdminError(err.message || "User-Suche fehlgeschlagen");
+      setAdminError(err.message || "User-Daten konnten nicht geladen werden");
       setAdminUser(null);
     } finally {
       setAdminBusy(false);
@@ -619,7 +636,6 @@ const App: React.FC = () => {
       };
       setAdminUser(newUser);
 
-      // Wenn der aktuell eingeloggte User angepasst wurde, Wallet lokal updaten
       if (wallet && wallet.user_id === res.user_id) {
         setState((prev) =>
           prev.wallet
@@ -697,7 +713,7 @@ const App: React.FC = () => {
             ? "0 0 40px rgba(255,215,0,0.9)"
             : "0 18px 45px rgba(0,0,0,0.6)",
           border: "1px solid rgba(255,255,255,0.06)",
-          overflow: "hidden",
+          overflow: "visible",
         }}
       >
         {/* Big-Win-Overlay */}
@@ -1465,6 +1481,7 @@ const App: React.FC = () => {
                     style={{
                       flex: "1 1 240px",
                       minWidth: 220,
+                      position: "relative",
                     }}
                   >
                     <label
@@ -1474,56 +1491,70 @@ const App: React.FC = () => {
                         marginBottom: 4,
                       }}
                     >
-                      User suchen (Discord-ID)
+                      User suchen (Name)
                     </label>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 8,
-                        marginBottom: 8,
+                    <input
+                      type="text"
+                      value={adminSearchQuery}
+                      onChange={(e) => {
+                        setAdminSearchQuery(e.target.value);
+                        setAdminUser(null);
                       }}
-                    >
-                      <input
-                        type="text"
-                        value={adminSearchDiscordId}
-                        onChange={(e) =>
-                          setAdminSearchDiscordId(e.target.value)
-                        }
-                        placeholder="123456789012345678"
+                      placeholder="Namen eingeben..."
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #555",
+                        background: "#090910",
+                        color: "#f5f5f5",
+                        fontSize: "0.8rem",
+                      }}
+                    />
+                    {adminSearchResults.length > 0 && (
+                      <div
                         style={{
-                          flex: 1,
-                          padding: "6px 8px",
-                          borderRadius: 6,
+                          position: "absolute",
+                          top: "100%",
+                          left: 0,
+                          right: 0,
+                          background: "#1a1a2e",
                           border: "1px solid #555",
-                          background: "#090910",
-                          color: "#f5f5f5",
-                          fontSize: "0.8rem",
-                        }}
-                      />
-                      <button
-                        onClick={handleAdminSearch}
-                        disabled={adminBusy || !adminSearchDiscordId.trim()}
-                        style={{
-                          padding: "6px 10px",
-                          borderRadius: 999,
-                          border: "none",
-                          background: adminBusy ? "#444" : "#4caf50",
-                          color: "#111",
-                          fontSize: "0.8rem",
-                          fontWeight: 600,
-                          cursor:
-                            adminBusy || !adminSearchDiscordId.trim()
-                              ? "default"
-                              : "pointer",
+                          borderRadius: "0 0 6px 6px",
+                          marginTop: "2px",
+                          maxHeight: "200px",
+                          overflowY: "auto",
+                          zIndex: 10,
                         }}
                       >
-                        Laden
-                      </button>
-                    </div>
+                        {adminSearchResults.map((user) => (
+                          <div
+                            key={user.user_id}
+                            onClick={() => handleSelectUser(user)}
+                            style={{
+                              padding: "8px",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "8px",
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.background = "#2c2c4a")}
+                            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                          >
+                            {user.avatar_url && (
+                              <img src={user.avatar_url} alt="" style={{ width: 24, height: 24, borderRadius: "50%" }} />
+                            )}
+                            <span style={{ fontSize: "0.8rem" }}>{user.discord_name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {isSearching && <div style={{ fontSize: "0.75rem", color: "#aaa", padding: "4px" }}>Suche...</div>}
 
                     {adminUser && (
                       <div
                         style={{
+                          marginTop: "8px",
                           fontSize: "0.8rem",
                           padding: "6px 8px",
                           borderRadius: 8,

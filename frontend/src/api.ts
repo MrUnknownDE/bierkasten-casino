@@ -90,6 +90,12 @@ export interface AdminMeResponse {
   discord_id: string;
   discord_name: string;
 }
+export interface AdminUserSearchResult {
+  user_id: number;
+  discord_id: string;
+  discord_name: string;
+  avatar_url: string | null;
+}
 
 export interface AdminUserSummary {
   user_id: number;
@@ -147,6 +153,14 @@ export async function getBigWinLeaderboard(): Promise<BigWinLeaderboardEntry[]> 
 
 export async function getAdminMe(): Promise<AdminMeResponse> {
   return apiGet<AdminMeResponse>("/admin/me");
+}
+
+export async function adminSearchUsers(
+  query: string
+): Promise<AdminUserSearchResult[]> {
+  return apiGet<AdminUserSearchResult[]>(
+    `/admin/users/search?q=${encodeURIComponent(query)}`
+  );
 }
 
 export async function adminFindUserByDiscord(

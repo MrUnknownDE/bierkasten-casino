@@ -55,6 +55,44 @@ async function requireAdmin(req: any, res: any, next: any) {
   }
 }
 
+// NEUE ROUTE: GET /admin/users/search?q=...
+// Sucht Benutzer nach ihrem Discord-Namen (case-insensitive)
+adminRouter.get("/users/search", requireAdmin, async (req, res) => {
+  const searchQuery = req.query.q as string | undefined;
+
+  if (!searchQuery || searchQuery.trim().length < 2) {
+    // Suchen erst ab 2 Zeichen, um die DB nicht zu überlasten
+    return res.json([]);
+  }
+
+  try {
+    const rows = await query<{
+      user_id: number;
+      discord_id: string;
+      discord_name: string;
+      avatar_url: string | null;
+    }>(
+      `
+        SELECT
+          id AS user_id,
+          discord_id,
+          discord_name,
+          avatar_url
+        FROM users
+        WHERE discord_name ILIKE $1
+        ORDER BY discord_name
+        LIMIT 10
+      `,
+      [`%${searchQuery.trim()}%`] // ILIKE für case-insensitive Suche mit Wildcards
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error("GET /admin/users/search error:", err);
+    res.status(500).json({ error: "User search failed" });
+  }
+});
+
 // GET /admin/me -> zeigt ob aktueller User Admin ist
 adminRouter.get("/me", requireAuth, async (req: any, res) => {
   try {
@@ -154,7 +192,7 @@ adminRouter.post(
       // Wallet holen/erzeugen
       const wRes = await client.query<{
         user_id: number;
-        balance: number;
+        balance: number | string; // Wichtig: Kann auch ein String sein!
       }>(
         `
           SELECT user_id, balance
@@ -165,7 +203,7 @@ adminRouter.post(
         [userId]
       );
 
-      let wallet: { user_id: number; balance: number };
+      let wallet: { user_id: number; balance: number | string };
 
       if (wRes.rows.length === 0) {
         const inserted = await client.query<{
@@ -184,7 +222,10 @@ adminRouter.post(
         wallet = wRes.rows[0];
       }
 
-      const newBalance = wallet.balance + amount;
+      // --- DER FIX ---
+      // Wandle das Guthaben explizit in eine Zahl um, bevor gerechnet wird.
+      const currentBalance = Number(wallet.balance) || 0;
+      const newBalance = currentBalance + amount;
 
       const updated = await client.query<{
         user_id: number;
