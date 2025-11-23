@@ -4,6 +4,7 @@ import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 import { getMe, getLoginUrl, logout, MeResponse, getAdminMe, AdminMeResponse } from "./api";
 import { GamePage } from "./pages/GamePage";
 import { AdminPage } from "./pages/AdminPage";
+import { CrashPage } from "./pages/CrashPage";
 
 const AdminRoute: React.FC<{ adminInfo: AdminMeResponse | null; children: React.ReactNode }> = ({ adminInfo, children }) => {
   if (!adminInfo || !adminInfo.is_admin) {
@@ -51,7 +52,7 @@ const App: React.FC = () => {
 
   if (loading) {
     return (
-      <div style={{ color: 'white', textAlign: 'center', fontSize: '1.5rem' }}>
+      <div style={{ color: 'white', textAlign: 'center', fontSize: '1.5rem', fontFamily: 'system-ui, sans-serif' }}>
         Lade Bierbaron Casino...
       </div>
     );
@@ -72,7 +73,7 @@ const App: React.FC = () => {
         style={{
           position: "relative",
           width: "100%",
-          maxWidth: location.pathname.startsWith('/admin') ? "1200px" : "960px", // Admin-Seite breiter
+          maxWidth: location.pathname.startsWith('/admin') ? "1200px" : "960px",
           background: "rgba(10,10,18,0.95)",
           borderRadius: "18px",
           padding: "24px 28px 30px",
@@ -91,15 +92,17 @@ const App: React.FC = () => {
             flexWrap: 'wrap'
           }}
         >
-          <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
             <h1 style={{ margin: 0, fontSize: "1.8rem", textAlign: "left" }}>
               <Link to="/" style={{ color: "inherit", textDecoration: "none" }}>🍺 Bierbaron Casino</Link>
             </h1>
-            {adminInfo?.is_admin && (
-              <Link to="/admin" style={{ color: "#ffb347", textDecoration: "none", fontSize: "0.9rem", marginLeft: '4px' }}>
-                🛠 Admin Panel
-              </Link>
-            )}
+            <nav style={{ display: 'flex', gap: '16px', alignItems: 'center', borderLeft: '1px solid #333', paddingLeft: '24px' }}>
+              <Link to="/" style={{ color: "#ccc", textDecoration: "none", fontSize: "1rem" }}>🎰 Slots</Link>
+              <Link to="/crash" style={{ color: "#ccc", textDecoration: "none", fontSize: "1rem" }}>🚀 Bier-Crash</Link>
+              {adminInfo?.is_admin && (
+                <Link to="/admin" style={{ color: "#ffb347", textDecoration: "none", fontSize: "1rem" }}>🛠 Admin</Link>
+              )}
+            </nav>
           </div>
 
           <div>
@@ -146,17 +149,20 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        <Routes>
-          <Route path="/*" element={<GamePage me={me} />} />
-          <Route
-            path="/admin/*"
-            element={
-              <AdminRoute adminInfo={adminInfo}>
-                <AdminPage adminInfo={adminInfo} />
-              </AdminRoute>
-            }
-          />
-        </Routes>
+        <main>
+          <Routes>
+            <Route path="/" element={<GamePage me={me} />} />
+            <Route path="/crash" element={<CrashPage me={me} />} />
+            <Route
+              path="/admin/*"
+              element={
+                <AdminRoute adminInfo={adminInfo}>
+                  <AdminPage adminInfo={adminInfo} />
+                </AdminRoute>
+              }
+            />
+          </Routes>
+        </main>
       </div>
     </div>
   );

@@ -1,4 +1,7 @@
 import express from "express";
+import http from "http";
+import { WebSocketServer } from "ws"; 
+import { handleConnection } from "./services/crashGame";
 import session from "express-session";
 import cors from "cors";
 import cookieParser from "cookie-parser";
@@ -16,10 +19,10 @@ import {
 import { adminRouter } from "./routes/admin";
 
 const app = express();
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server }); 
+wss.on('connection', handleConnection);
 
-// --- ÄNDERUNG 1: Robustere Proxy-Erkennung ---
-// Vertraue dem X-Forwarded-For Header, der von den Proxys gesetzt wird.
-// Das ist zuverlässiger als die Anzahl der Proxys zu raten.
 app.set("trust proxy", true);
 
 
