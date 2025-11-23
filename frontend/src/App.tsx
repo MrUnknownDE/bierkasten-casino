@@ -269,10 +269,19 @@ const App: React.FC = () => {
     try {
       setState((prev) => ({ ...prev, loading: true, error: null }));
 
+      // --- HINZUGEFÜGT: Loggen, was der Browser weiß ---
+      console.log("[FRONTEND] Starting loadAll. Current browser cookies:", document.cookie);
+      
       const [meRes, walletRes] = await Promise.all([
-        getMe().catch(() => null),
+        getMe().catch((err) => {
+          // --- HINZUGEFÜGT: Fehler beim /me-Aufruf loggen ---
+          console.error("[FRONTEND] API call to getMe() failed:", err);
+          return null;
+        }),
         getWallet().catch(() => null),
       ]);
+
+      console.log("[FRONTEND] API calls finished. User data received:", meRes);
 
       setState((prev) => ({
         ...prev,
