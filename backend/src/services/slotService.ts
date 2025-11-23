@@ -1,5 +1,6 @@
-// path: backend/src/services/slotService.ts
+// backend/src/services/slotService.ts
 import { randomInt } from "crypto";
+import { getWinChance } from "./gameSettings"; // Importieren
 
 // backend/src/services/slotService.ts
 export type SymbolId =
@@ -68,13 +69,25 @@ export interface SpinResult {
 }
 
 function randomSymbol(): SymbolId {
-  const totalWeight = SYMBOLS.reduce((s, sym) => s + sym.weight, 0);
+  const modifier = getWinChance();
+
+  // Erstelle eine temporäre, modifizierte Symbol-Liste
+  const modifiedSymbols = SYMBOLS.map(sym => {
+    let weight = sym.weight;
+    // Erhöhe die Chance auf wertvolle Symbole und das Buch
+    if (["MUG", "BARREL", "BARON", "BOOK"].includes(sym.id)) {
+      weight *= modifier;
+    }
+    return { ...sym, weight };
+  });
+
+  const totalWeight = modifiedSymbols.reduce((s, sym) => s + sym.weight, 0);
   let r = Math.random() * totalWeight;
-  for (const sym of SYMBOLS) {
+  for (const sym of modifiedSymbols) {
     r -= sym.weight;
     if (r <= 0) return sym.id;
   }
-  return SYMBOLS[0].id;
+  return modifiedSymbols[0].id;
 }
 
 // 5 Walzen x 3 Reihen

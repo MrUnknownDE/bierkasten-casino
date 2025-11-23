@@ -1,6 +1,8 @@
+// backend/src/routes/admin.ts
 import { Router } from "express";
 import { pool, query } from "../db";
 import { config } from "../config";
+import { getWinChance, setWinChance } from "../services/gameSettings";
 
 export const adminRouter = Router();
 
@@ -55,13 +57,89 @@ async function requireAdmin(req: any, res: any, next: any) {
   }
 }
 
-// NEUE ROUTE: GET /admin/users/search?q=...
-// Sucht Benutzer nach ihrem Discord-Namen (case-insensitive)
+// --- NEUE ENDPUNKTE ---
+
+// GET /admin/stats -> Liefert Dashboard-Statistiken
+adminRouter.get("/stats", requireAdmin, async (req, res) => {
+  try {
+    // 1. "Online" User (aktiv in den letzten 5 Minuten)
+    const onlineUsersRes = await pool.query(
+      "SELECT COUNT(*) FROM session WHERE expire > NOW() - INTERVAL '5 minutes'"
+    );
+    const online_users = parseInt(onlineUsersRes.rows[0].count, 10);
+
+    // 2. Gesamte "Geldmenge" (Inflation)
+    const supplyRes = await pool.query(
+      "SELECT SUM(balance) as total_supply FROM wallets"
+    );
+    const total_supply = parseInt(supplyRes.rows[0].total_supply, 10);
+
+    // 3. Gesamtzahl der registrierten User
+    const totalUsersRes = await pool.query("SELECT COUNT(*) FROM users");
+    const total_users = parseInt(totalUsersRes.rows[0].count, 10);
+
+    res.json({
+      online_users,
+      total_users,
+      total_supply,
+    });
+  } catch (err) {
+    console.error("GET /admin/stats error:", err);
+    res.status(500).json({ error: "Failed to fetch stats" });
+  }
+});
+
+// GET /admin/user/:userId/transactions -> Holt die letzten 50 Transaktionen eines Users
+adminRouter.get("/user/:userId/transactions", requireAdmin, async (req, res) => {
+  const userId = parseInt(req.params.userId, 10);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return res.status(400).json({ error: "Invalid userId" });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `
+        SELECT id, amount, reason, created_at
+        FROM wallet_transactions
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+        LIMIT 50
+      `,
+      [userId]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("GET /admin/user/:userId/transactions error:", err);
+    res.status(500).json({ error: "Failed to fetch transactions" });
+  }
+});
+
+// GET /admin/settings/win-chance -> Holt die aktuelle Gewinnchance
+adminRouter.get("/settings/win-chance", requireAdmin, (req, res) => {
+  res.json({ win_chance_modifier: getWinChance() });
+});
+
+// POST /admin/settings/win-chance -> Setzt eine neue Gewinnchance
+adminRouter.post("/settings/win-chance", requireAdmin, (req, res) => {
+  const { win_chance_modifier } = req.body;
+  const modifier = parseFloat(win_chance_modifier);
+
+  if (!Number.isFinite(modifier) || modifier < 0.1 || modifier > 5.0) {
+    return res.status(400).json({ error: "Invalid modifier (must be between 0.1 and 5.0)" });
+  }
+
+  setWinChance(modifier);
+  res.json({ win_chance_modifier: getWinChance() });
+});
+
+
+// --- ALTE ENDPUNKTE BLEIBEN ---
+
+// GET /admin/users/search?q=...
 adminRouter.get("/users/search", requireAdmin, async (req, res) => {
   const searchQuery = req.query.q as string | undefined;
 
   if (!searchQuery || searchQuery.trim().length < 2) {
-    // Suchen erst ab 2 Zeichen, um die DB nicht zu überlasten
     return res.json([]);
   }
 
@@ -83,7 +161,7 @@ adminRouter.get("/users/search", requireAdmin, async (req, res) => {
         ORDER BY discord_name
         LIMIT 10
       `,
-      [`%${searchQuery.trim()}%`] // ILIKE für case-insensitive Suche mit Wildcards
+      [`%${searchQuery.trim()}%`]
     );
 
     res.json(rows);
@@ -93,7 +171,7 @@ adminRouter.get("/users/search", requireAdmin, async (req, res) => {
   }
 });
 
-// GET /admin/me -> zeigt ob aktueller User Admin ist
+// GET /admin/me
 adminRouter.get("/me", requireAuth, async (req: any, res) => {
   try {
     const user = await getSessionUser(req);
@@ -114,7 +192,6 @@ adminRouter.get("/me", requireAuth, async (req: any, res) => {
 });
 
 // GET /admin/user/by-discord/:discordId
-// Sucht User + Wallet per Discord-ID
 adminRouter.get(
   "/user/by-discord/:discordId",
   requireAdmin,
@@ -166,7 +243,6 @@ adminRouter.get(
 );
 
 // POST /admin/user/:userId/adjust-balance
-// Body: { amount: number, reason?: string }
 adminRouter.post(
   "/user/:userId/adjust-balance",
   requireAdmin,
@@ -189,10 +265,9 @@ adminRouter.post(
     try {
       await client.query("BEGIN");
 
-      // Wallet holen/erzeugen
       const wRes = await client.query<{
         user_id: number;
-        balance: number | string; // Wichtig: Kann auch ein String sein!
+        balance: number | string;
       }>(
         `
           SELECT user_id, balance
@@ -222,8 +297,6 @@ adminRouter.post(
         wallet = wRes.rows[0];
       }
 
-      // --- DER FIX ---
-      // Wandle das Guthaben explizit in eine Zahl um, bevor gerechnet wird.
       const currentBalance = Number(wallet.balance) || 0;
       const newBalance = currentBalance + amount;
 
@@ -265,7 +338,6 @@ adminRouter.post(
 );
 
 // POST /admin/user/:userId/reset-wallet
-// Body (optional): { reset_balance_to?: number }
 adminRouter.post(
   "/user/:userId/reset-wallet",
   requireAdmin,

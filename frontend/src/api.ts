@@ -1,4 +1,6 @@
+// frontend/src/api.ts
 const API_BASE = "";
+
 async function apiGet<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
@@ -41,9 +43,6 @@ export interface MeResponse {
   discord_name: string;
   avatar_url: string | null;
   created_at: string;
-  // Wallet-Daten sind jetzt hier enthalten
-  balance: number | null;
-  last_claim_at: string | null;
 }
 
 export interface WalletResponse {
@@ -90,6 +89,7 @@ export interface AdminMeResponse {
   discord_id: string;
   discord_name: string;
 }
+
 export interface AdminUserSearchResult {
   user_id: number;
   discord_id: string;
@@ -106,6 +106,19 @@ export interface AdminUserSummary {
   last_claim_at: string | null;
 }
 
+export interface AdminStats {
+  online_users: number;
+  total_users: number;
+  total_supply: number;
+}
+
+export interface AdminTransaction {
+  id: number;
+  amount: number;
+  reason: string;
+  created_at: string;
+}
+
 // --- Auth / User ---
 
 export async function getMe(): Promise<MeResponse> {
@@ -113,7 +126,6 @@ export async function getMe(): Promise<MeResponse> {
 }
 
 export function getLoginUrl(): string {
-  // Die Route im Backend lautet /auth/discord
   return `${API_BASE}/auth/discord`;
 }
 
@@ -190,4 +202,22 @@ export async function adminResetWallet(
     `/admin/user/${userId}/reset-wallet`,
     { reset_balance_to: resetBalanceTo }
   );
+}
+
+export async function getAdminStats(): Promise<AdminStats> {
+  return apiGet<AdminStats>("/admin/stats");
+}
+
+export async function getAdminUserTransactions(userId: number): Promise<AdminTransaction[]> {
+  return apiGet<AdminTransaction[]>(`/admin/user/${userId}/transactions`);
+}
+
+export async function getWinChance(): Promise<{ win_chance_modifier: number }> {
+  return apiGet<{ win_chance_modifier: number }>("/admin/settings/win-chance");
+}
+
+export async function setWinChance(modifier: number): Promise<{ win_chance_modifier: number }> {
+  return apiPost<{ win_chance_modifier: number }>("/admin/settings/win-chance", {
+    win_chance_modifier: modifier,
+  });
 }
