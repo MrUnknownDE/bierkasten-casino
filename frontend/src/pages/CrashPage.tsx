@@ -3,6 +3,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MeResponse, WalletResponse, getWallet } from '../api';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
+interface PlayerInfo {
+  userId: number;
+  discordName: string;
+  bet: number;
+  cashedOutAt?: number;
+}
+
 interface CrashPageProps {
   me: MeResponse | null;
 }
@@ -13,31 +20,36 @@ export const CrashPage: React.FC<CrashPageProps> = ({ me }) => {
   const [history, setHistory] = useState<{ time: number, value: number }[]>([]);
   const [wallet, setWallet] = useState<WalletResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [betAmount, setBetAmount] = useState(100);
+  const [playerList, setPlayerList] = useState<PlayerInfo[]>([]);
+  const [hasBet, setHasBet] = useState(false);
   const ws = useRef<WebSocket | null>(null);
 
-  // --- HINZUGEFÜGT: Lade das Wallet des Benutzers ---
-  useEffect(() => {
-    async function loadWallet() {
-      if (me) {
-        try {
-          const walletData = await getWallet();
-          setWallet(walletData);
-        } catch (err: any) {
-          setError("Konnte das Guthaben nicht laden.");
-        }
+  const loadWallet = async () => {
+    if (me) {
+      try {
+        const walletData = await getWallet();
+        setWallet(walletData);
+      } catch (err: any) {
+        setError("Konnte das Guthaben nicht laden.");
       }
     }
+  };
+
+  useEffect(() => {
     loadWallet();
   }, [me]);
 
   useEffect(() => {
-    // --- DER FIX: Verbinde zum /ws Pfad ---
     const wsUrl = `wss://${window.location.host}/ws`;
     ws.current = new WebSocket(wsUrl);
 
     ws.current.onopen = () => {
       console.log("WebSocket connected");
       setPhase('connected');
+      if (me) {
+        ws.current?.send(JSON.stringify({ type: 'auth', payload: { userId: me.id } }));
+      }
     };
 
     ws.current.onmessage = (event) => {
@@ -47,11 +59,14 @@ export const CrashPage: React.FC<CrashPageProps> = ({ me }) => {
         case 'gameState':
           setPhase(data.phase);
           setMultiplier(data.multiplier);
+          setPlayerList(data.players);
           break;
         case 'newRound':
           setPhase(data.phase);
           setHistory([]);
           setMultiplier(1.00);
+          setHasBet(false);
+          setError(null);
           break;
         case 'roundStart':
           setPhase(data.phase);
@@ -63,6 +78,18 @@ export const CrashPage: React.FC<CrashPageProps> = ({ me }) => {
         case 'crash':
           setPhase('crashed');
           setMultiplier(data.multiplier);
+          loadWallet(); // Guthaben nach der Runde neu laden
+          break;
+        case 'playerUpdate':
+          setPlayerList(data.players);
+          break;
+        case 'cashout_success':
+          loadWallet(); // Guthaben nach erfolgreichem Cashout neu laden
+          break;
+        case 'error':
+          setError(data.message);
+          setHasBet(false); // Einsatz fehlgeschlagen, erlaube neuen Versuch
+          loadWallet(); // Guthaben synchronisieren
           break;
       }
     };
@@ -75,15 +102,30 @@ export const CrashPage: React.FC<CrashPageProps> = ({ me }) => {
     return () => {
       ws.current?.close();
     };
-  }, []);
+  }, [me]);
+
+  const handlePlaceBet = () => {
+    if (ws.current?.readyState === WebSocket.OPEN && phase === 'betting' && !hasBet) {
+      setError(null);
+      ws.current.send(JSON.stringify({ type: 'bet', payload: { amount: betAmount } }));
+      setHasBet(true);
+    }
+  };
+
+  const handleCashout = () => {
+    const player = playerList.find(p => p.userId === me?.id);
+    if (ws.current?.readyState === WebSocket.OPEN && phase === 'running' && player && !player.cashedOutAt) {
+      ws.current.send(JSON.stringify({ type: 'cashout' }));
+    }
+  };
 
   const getStatusMessage = () => {
     switch (phase) {
       case 'connecting': return 'Verbinde mit dem Server...';
       case 'connected':
       case 'waiting': return 'Warte auf die nächste Runde...';
-      case 'betting': return 'Einsätze platzieren! Runde startet bald...';
-      case 'running': return 'Runde läuft!';
+      case 'betting': return 'Einsätze platzieren!';
+      case 'running': return 'Runde läuft...';
       case 'crashed': return `CRASHED @ ${multiplier.toFixed(2)}x`;
       case 'disconnected': return 'Verbindung verloren. Bitte Seite neu laden.';
       default: return '';
@@ -99,25 +141,57 @@ export const CrashPage: React.FC<CrashPageProps> = ({ me }) => {
     );
   }
 
+  const myPlayerInfo = playerList.find(p => p.userId === me.id);
+  const canBet = phase === 'betting' && !myPlayerInfo;
+  const canCashout = phase === 'running' && myPlayerInfo && !myPlayerInfo.cashedOutAt;
+
   return (
     <div>
-      {error && <div style={{ color: 'red', marginBottom: '1rem' }}>{error}</div>}
+      {error && <div style={{ color: 'salmon', marginBottom: '1rem', textAlign: 'center', background: 'rgba(250, 128, 114, 0.1)', padding: '8px', borderRadius: '4px' }}>{error}</div>}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 3fr', gap: '24px', alignItems: 'flex-start' }}>
-        {/* Linke Spalte: Steuerung */}
+        {/* Linke Spalte: Steuerung & Spielerliste */}
         <div>
-          <div style={{ background: '#1a1a2e', padding: '16px', borderRadius: '8px' }}>
+          <div style={{ background: '#1a1a2e', padding: '16px', borderRadius: '8px', marginBottom: '16px' }}>
             <h4>Dein Guthaben</h4>
             <p style={{ fontSize: '1.5rem', margin: '0 0 16px 0', color: '#ffb347' }}>
               {wallet ? wallet.balance.toLocaleString('de-DE') : '...'} Bierkästen
             </p>
             <h4>Dein Einsatz</h4>
-            <input type="number" placeholder="100" style={{ width: '100%', padding: '8px', background: '#0b0b10', border: '1px solid #555', color: 'white', borderRadius: '4px' }} />
-            <button style={{ width: '100%', padding: '12px', marginTop: '16px', background: 'limegreen', border: 'none', borderRadius: '4px', color: 'white', fontWeight: 'bold' }}>
-              Einsatz platzieren
+            <input 
+              type="number" 
+              value={betAmount}
+              onChange={e => setBetAmount(Math.max(1, parseInt(e.target.value) || 1))}
+              disabled={!canBet}
+              style={{ width: '100%', padding: '8px', background: '#0b0b10', border: '1px solid #555', color: 'white', borderRadius: '4px' }} 
+            />
+            <button 
+              onClick={handlePlaceBet} 
+              disabled={!canBet}
+              style={{ width: '100%', padding: '12px', marginTop: '16px', background: canBet ? 'limegreen' : '#555', border: 'none', borderRadius: '4px', color: 'white', fontWeight: 'bold', cursor: canBet ? 'pointer' : 'not-allowed' }}
+            >
+              {myPlayerInfo ? 'Einsatz platziert' : 'Einsatz platzieren'}
             </button>
-            <button style={{ width: '100%', padding: '12px', marginTop: '8px', background: 'dodgerblue', border: 'none', borderRadius: '4px', color: 'white', fontWeight: 'bold' }}>
+            <button 
+              onClick={handleCashout} 
+              disabled={!canCashout}
+              style={{ width: '100%', padding: '12px', marginTop: '8px', background: canCashout ? 'dodgerblue' : '#555', border: 'none', borderRadius: '4px', color: 'white', fontWeight: 'bold', cursor: canCashout ? 'pointer' : 'not-allowed' }}
+            >
               CASHOUT
             </button>
+          </div>
+          <div style={{ background: '#1a1a2e', padding: '16px', borderRadius: '8px' }}>
+            <h4>Spieler in dieser Runde ({playerList.length})</h4>
+            <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+              {playerList.map(p => (
+                <div key={p.userId} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #333', color: p.cashedOutAt ? 'limegreen' : 'white' }}>
+                  <span>{p.discordName}</span>
+                  <span>
+                    {p.bet.toLocaleString('de-DE')} 
+                    {p.cashedOutAt ? ` @ ${p.cashedOutAt.toFixed(2)}x` : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
