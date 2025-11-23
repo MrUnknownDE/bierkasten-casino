@@ -1,20 +1,18 @@
-// backend/src/services/crashGame.ts
-import { WebSocket } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import { pool } from "../db";
-import { query as dbQuery } from "../db"; // Umbenannt, um Konflikte zu vermeiden
+import { query as dbQuery } from "../db";
 
 // --- Typen und Interfaces ---
 type GamePhase = "waiting" | "betting" | "running" | "crashed";
 
 interface Player {
-  ws: WebSocket;
+  ws: AuthenticatedWebSocket;
   userId: number;
   discordName: string;
   bet: number;
   cashedOutAt?: number;
 }
 
-// Erweitern des WebSocket-Typs, um Benutzerinformationen zu speichern
 interface AuthenticatedWebSocket extends WebSocket {
   userId?: number;
   discordName?: string;
@@ -30,14 +28,24 @@ let roundStartTime = 0;
 
 const clients = new Set<AuthenticatedWebSocket>();
 
-// --- WebSocket-Verwaltung ---
+// --- Initialisierungsfunktion ---
+export function initializeCrashGame(wss: WebSocketServer) {
+  wss.on('connection', (ws: AuthenticatedWebSocket) => {
+    handleConnection(ws);
+  });
 
-export function handleConnection(ws: AuthenticatedWebSocket) {
+  runGameLoop();
+  startHealthCheck();
+  
+  console.log("[Crash] Crash game service initialized and attached to WebSocket server.");
+}
+
+// --- WebSocket-Verwaltung ---
+function handleConnection(ws: AuthenticatedWebSocket) {
   ws.isAlive = true;
   clients.add(ws);
   console.log("[Crash] New client connected.");
 
-  // Sende den aktuellen Zustand an den neuen Client
   ws.send(JSON.stringify({
     type: "gameState",
     phase,
@@ -50,14 +58,8 @@ export function handleConnection(ws: AuthenticatedWebSocket) {
     }))
   }));
 
-  ws.on("pong", () => {
-    ws.isAlive = true;
-  });
-
-  ws.on("message", (message) => {
-    handleMessage(ws, message.toString());
-  });
-
+  ws.on("pong", () => { ws.isAlive = true; });
+  ws.on("message", (message) => { handleMessage(ws, message.toString()); });
   ws.on("close", () => {
     clients.delete(ws);
     players.delete(ws);
@@ -86,13 +88,11 @@ function broadcastPlayerList() {
 }
 
 // --- Nachrichtenverarbeitung ---
-
 async function handleMessage(ws: AuthenticatedWebSocket, message: string) {
   try {
     const data = JSON.parse(message);
     switch (data.type) {
       case "auth":
-        // Spieler authentifiziert sich mit seiner Session
         const [user] = await dbQuery<{ id: number, discord_name: string }>(
           "SELECT id, discord_name FROM users WHERE id = $1",
           [data.payload.userId]
@@ -103,11 +103,9 @@ async function handleMessage(ws: AuthenticatedWebSocket, message: string) {
           console.log(`[Crash] Client authenticated as ${ws.discordName} (ID: ${ws.userId})`);
         }
         break;
-
       case "bet":
         await handleBet(ws, data.payload.amount);
         break;
-
       case "cashout":
         await handleCashout(ws);
         break;
@@ -118,13 +116,9 @@ async function handleMessage(ws: AuthenticatedWebSocket, message: string) {
 }
 
 async function handleBet(ws: AuthenticatedWebSocket, amount: number) {
-  if (phase !== "betting" || !ws.userId || !ws.discordName || players.has(ws)) {
-    return; // Falsche Phase, nicht authentifiziert oder schon gewettet
-  }
+  if (phase !== "betting" || !ws.userId || !ws.discordName || players.has(ws)) return;
   const betAmount = Math.floor(amount);
-  if (!Number.isFinite(betAmount) || betAmount <= 0) {
-    return;
-  }
+  if (!Number.isFinite(betAmount) || betAmount <= 0) return;
 
   const client = await pool.connect();
   try {
@@ -146,7 +140,6 @@ async function handleBet(ws: AuthenticatedWebSocket, amount: number) {
     players.set(ws, { ws, userId: ws.userId, discordName: ws.discordName, bet: betAmount });
     console.log(`[Crash] ${ws.discordName} placed a bet of ${betAmount}`);
     broadcastPlayerList();
-
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("[Crash] Bet failed:", error);
@@ -156,13 +149,9 @@ async function handleBet(ws: AuthenticatedWebSocket, amount: number) {
 }
 
 async function handleCashout(ws: AuthenticatedWebSocket) {
-  if (phase !== "running" || !players.has(ws)) {
-    return;
-  }
+  if (phase !== "running" || !players.has(ws)) return;
   const player = players.get(ws)!;
-  if (player.cashedOutAt) {
-    return; // Schon ausbezahlt
-  }
+  if (player.cashedOutAt) return;
 
   player.cashedOutAt = multiplier;
   console.log(`[Crash] ${player.discordName} cashed out at ${multiplier}x`);
@@ -181,7 +170,6 @@ async function handleCashout(ws: AuthenticatedWebSocket) {
 }
 
 // --- Spiellogik ---
-
 function calculateCrashPoint(): number {
   const r = Math.random();
   const crash = 1 / (1 - r);
@@ -190,66 +178,52 @@ function calculateCrashPoint(): number {
 
 async function runGameLoop() {
   while (true) {
-    // 1. Betting Phase (10 Sekunden)
     phase = "betting";
     crashPoint = calculateCrashPoint();
     console.log(`[Crash] New round. Crash point: ${crashPoint}x`);
     broadcast({ type: "newRound", phase: "betting", duration: 10000 });
     await new Promise(resolve => setTimeout(resolve, 10000));
 
-    // 2. Running Phase
-    phase = "running";
-    roundStartTime = Date.now();
-    multiplier = 1.00;
-    broadcast({ type: "roundStart", phase: "running" });
+    if (players.size > 0) {
+      phase = "running";
+      roundStartTime = Date.now();
+      multiplier = 1.00;
+      broadcast({ type: "roundStart", phase: "running" });
 
-    const runInterval = setInterval(() => {
-      const elapsed = (Date.now() - roundStartTime) / 1000;
-      multiplier = parseFloat(Math.max(1.00, Math.pow(1.05, elapsed)).toFixed(2));
-      
-      if (multiplier >= crashPoint) {
-        clearInterval(runInterval);
-        phase = "crashed";
-        multiplier = crashPoint;
-        console.log(`[Crash] Round crashed at ${crashPoint}x`);
-        broadcast({ type: "crash", multiplier: crashPoint });
-        // Verluste wurden bereits beim Einsatz verbucht. Gewinne beim Cashout.
-      } else {
-        broadcast({ type: "multiplierUpdate", multiplier });
+      let gameRunning = true;
+      while(gameRunning) {
+        const elapsed = (Date.now() - roundStartTime) / 1000;
+        multiplier = parseFloat(Math.max(1.00, Math.pow(1.05, elapsed)).toFixed(2));
+        
+        if (multiplier >= crashPoint) {
+          gameRunning = false;
+          phase = "crashed";
+          multiplier = crashPoint;
+          console.log(`[Crash] Round crashed at ${crashPoint}x`);
+          broadcast({ type: "crash", multiplier: crashPoint });
+        } else {
+          broadcast({ type: "multiplierUpdate", multiplier });
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
-    }, 100);
+    } else {
+      console.log("[Crash] No players, skipping round.");
+    }
 
-    // Warte, bis die Runde gecrasht ist
-    await new Promise<void>(resolve => {
-      const checkCrash = () => {
-        if (phase === 'crashed') resolve();
-        else setTimeout(checkCrash, 50);
-      };
-      checkCrash();
-    });
-    clearInterval(runInterval);
-
-    // 5s Pause nach dem Crash
     await new Promise(resolve => setTimeout(resolve, 5000));
 
-    // Reset für die nächste Runde
     players.clear();
     multiplier = 1.0;
     phase = "waiting";
   }
 }
 
-// --- Health Check für tote Verbindungen ---
-setInterval(() => {
-  clients.forEach((ws) => {
-    if (!ws.isAlive) {
-      ws.terminate();
-      return;
-    }
-    ws.isAlive = false;
-    ws.ping();
-  });
-}, 30000);
-
-// Starte den Spiel-Loop
-runGameLoop();
+function startHealthCheck() {
+  setInterval(() => {
+    clients.forEach((ws) => {
+      if (!ws.isAlive) return ws.terminate();
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, 30000);
+}

@@ -1,7 +1,7 @@
 import express from "express";
 import http from "http";
-import { WebSocketServer } from "ws"; 
-import { handleConnection } from "./services/crashGame";
+import { WebSocketServer } from "ws";
+import { initializeCrashGame } from "./services/crashGame";
 import session from "express-session";
 import cors from "cors";
 import cookieParser from "cookie-parser";
@@ -20,11 +20,13 @@ import { adminRouter } from "./routes/admin";
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server }); 
-wss.on('connection', handleConnection);
+const wss = new WebSocketServer({ server });
 
+// Übergebe den WebSocket-Server an die Spiellogik zur Initialisierung.
+initializeCrashGame(wss);
+
+// Reverse Proxy
 app.set("trust proxy", true);
-
 
 // Session Store auf PostgreSQL umstellen
 const PgStore = connectPgSimple(session);
@@ -117,6 +119,6 @@ app.use("/wallet", walletRouter);
 app.use("/slot", slotRouter);
 app.use("/admin", adminRouter);
 
-app.listen(config.port, () => {
+server.listen(config.port, () => {
   console.log(`Bierbaron backend läuft auf Port ${config.port}`);
 });
