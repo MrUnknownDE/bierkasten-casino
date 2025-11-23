@@ -25,7 +25,7 @@ slotRouter.post("/book-of-bier/spin", requireAuth, async (req: any, res) => {
 
     const walletRes = await client.query<{
       user_id: number;
-      balance: number;
+      balance: number | string; // Wichtig: Kann als String kommen!
       free_spins_bob_remaining: number;
       free_spins_bob_bet: number | null;
     }>(
@@ -49,6 +49,10 @@ slotRouter.post("/book-of-bier/spin", requireAuth, async (req: any, res) => {
 
     const wallet = walletRes.rows[0];
 
+    // --- DER FIX ---
+    // Wandle das Guthaben aus der Datenbank explizit in eine Zahl um.
+    const currentBalance = Number(wallet.balance) || 0;
+
     const hasFreeSpins = (wallet.free_spins_bob_remaining || 0) > 0;
 
     let isFreeSpin = false;
@@ -56,7 +60,6 @@ slotRouter.post("/book-of-bier/spin", requireAuth, async (req: any, res) => {
 
     if (hasFreeSpins) {
       isFreeSpin = true;
-      // Falls aus irgendeinem Grund kein Bet gespeichert ist, fallback auf 10
       effectiveBet =
         wallet.free_spins_bob_bet && wallet.free_spins_bob_bet > 0
           ? wallet.free_spins_bob_bet
@@ -76,7 +79,7 @@ slotRouter.post("/book-of-bier/spin", requireAuth, async (req: any, res) => {
           .json({ error: "Bet too high (max 1000 Bierkästen)" });
       }
 
-      if (wallet.balance < requestedBet) {
+      if (currentBalance < requestedBet) { // Benutze die korrigierte Zahl
         await client.query("ROLLBACK");
         return res
           .status(400)
@@ -86,18 +89,17 @@ slotRouter.post("/book-of-bier/spin", requireAuth, async (req: any, res) => {
       effectiveBet = requestedBet;
     }
 
-    // Spin ausführen (reine Logik)
     const spin = spinBookOfBier(effectiveBet);
     const winAmount = spin.totalWin;
 
-    let newBalance = wallet.balance;
+    let newBalance: number;
 
     if (isFreeSpin) {
-      // Bei Freispielen kein Abzug, nur Gewinne drauf
-      newBalance = wallet.balance + winAmount;
+      // Benutze die korrigierte Zahl für die Berechnung
+      newBalance = currentBalance + winAmount;
     } else {
-      // Normales Spiel: Einsatz abziehen, Gewinn addieren
-      newBalance = wallet.balance - effectiveBet + winAmount;
+      // Benutze die korrigierte Zahl für die Berechnung
+      newBalance = currentBalance - effectiveBet + winAmount;
     }
 
     // Free-Spin-Zustand aktualisieren
@@ -110,10 +112,7 @@ slotRouter.post("/book-of-bier/spin", requireAuth, async (req: any, res) => {
       if (newFreeSpinsRemaining === 0) {
         newFreeSpinsBet = null;
       }
-      // In Freispielen selbst werden KEINE neuen Freispiele vergeben,
-      // um unendliche Ketten zu vermeiden.
     } else {
-      // Normales Spiel: hier können Freispiele frisch gewonnen werden
       const fs = getFreeSpinsForBooks(spin.bookCount);
       if (fs > 0) {
         freeSpinsAwardedThisSpin = fs;
@@ -142,45 +141,23 @@ slotRouter.post("/book-of-bier/spin", requireAuth, async (req: any, res) => {
 
     // Transaktionen loggen
     if (!isFreeSpin) {
-      // Einsatz
       await client.query(
-        `
-        INSERT INTO wallet_transactions (user_id, amount, reason)
-        VALUES ($1, $2, $3)
-        `,
+        `INSERT INTO wallet_transactions (user_id, amount, reason) VALUES ($1, $2, $3)`,
         [userId, -effectiveBet, "slot_bet:book_of_bier"]
       );
     }
 
     if (winAmount > 0) {
       await client.query(
-        `
-        INSERT INTO wallet_transactions (user_id, amount, reason)
-        VALUES ($1, $2, $3)
-        `,
-        [
-          userId,
-          winAmount,
-          isFreeSpin ? "slot_win_free:book_of_bier" : "slot_win:book_of_bier"
-        ]
+        `INSERT INTO wallet_transactions (user_id, amount, reason) VALUES ($1, $2, $3)`,
+        [userId, winAmount, isFreeSpin ? "slot_win_free:book_of_bier" : "slot_win:book_of_bier"]
       );
     }
 
     // Slot-Runde loggen
     await client.query(
-      `
-      INSERT INTO slot_rounds (user_id, game_name, bet_amount, win_amount, book_count, grid, is_free_spin)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `,
-      [
-        userId,
-        "book_of_bier",
-        effectiveBet,
-        winAmount,
-        spin.bookCount,
-        JSON.stringify(spin.grid),
-        isFreeSpin
-      ]
+      `INSERT INTO slot_rounds (user_id, game_name, bet_amount, win_amount, book_count, grid, is_free_spin) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [userId, "book_of_bier", effectiveBet, winAmount, spin.bookCount, JSON.stringify(spin.grid), isFreeSpin]
     );
 
     await client.query("COMMIT");
