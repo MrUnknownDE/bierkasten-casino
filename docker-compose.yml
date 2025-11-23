@@ -1,7 +1,7 @@
 services:
   backend:
     image: mrunknownde/biercasino-backend:latest
-    container_name: bierbaron_backend
+    container_name: biercasino_backend
     restart: unless-stopped
     env_file:
       - .env
@@ -10,7 +10,7 @@ services:
 
   frontend:
     image: mrunknownde/biercasino-frontend:latest
-    container_name: bierbaron_frontend
+    container_name: biercasino_frontend
     restart: unless-stopped
     ports:
       - "187:80"
