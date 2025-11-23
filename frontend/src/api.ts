@@ -1,7 +1,4 @@
-const API_BASE =
-  // Die Variable in docker-compose.yml heißt VITE_API_BASE_URL.
-  import.meta.env.VITE_API_BASE_URL || `https://casino.der-bierbaron.de`;
-
+const API_BASE = "";
 async function apiGet<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
