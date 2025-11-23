@@ -25,7 +25,7 @@ slotRouter.post("/book-of-bier/spin", requireAuth, async (req: any, res) => {
 
     const walletRes = await client.query<{
       user_id: number;
-      balance: number | string; // Wichtig: Kann als String kommen!
+      balance: number | string; // Kann als String aus der DB kommen
       free_spins_bob_remaining: number;
       free_spins_bob_bet: number | null;
     }>(
@@ -50,7 +50,7 @@ slotRouter.post("/book-of-bier/spin", requireAuth, async (req: any, res) => {
     const wallet = walletRes.rows[0];
 
     // --- DER FIX ---
-    // Wandle das Guthaben aus der Datenbank explizit in eine Zahl um.
+    // Wandle das Guthaben IMMER ZUERST in eine Zahl um.
     const currentBalance = Number(wallet.balance) || 0;
 
     const hasFreeSpins = (wallet.free_spins_bob_remaining || 0) > 0;
@@ -79,7 +79,8 @@ slotRouter.post("/book-of-bier/spin", requireAuth, async (req: any, res) => {
           .json({ error: "Bet too high (max 1000 Bierkästen)" });
       }
 
-      if (currentBalance < requestedBet) { // Benutze die korrigierte Zahl
+      // Benutze die korrigierte Zahl für die Prüfung
+      if (currentBalance < requestedBet) {
         await client.query("ROLLBACK");
         return res
           .status(400)
@@ -120,6 +121,10 @@ slotRouter.post("/book-of-bier/spin", requireAuth, async (req: any, res) => {
         newFreeSpinsBet = effectiveBet;
       }
     }
+
+    // --- DIAGNOSE-LOG ---
+    // Dieser Log zeigt uns genau, was der Server berechnet.
+    console.log(`[SLOT SPIN] User: ${userId}, Balance Before: ${currentBalance}, Bet: ${effectiveBet}, Win: ${winAmount}, Balance After: ${newBalance}`);
 
     // Wallet aktualisieren
     const updatedWallet = await client.query<{
