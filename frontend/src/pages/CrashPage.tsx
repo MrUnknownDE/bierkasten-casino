@@ -65,7 +65,7 @@ export const CrashPage: React.FC<CrashPageProps> = ({ me }) => {
           setPhase(data.phase);
           setHistory([]);
           setMultiplier(1.00);
-          setHasBet(false);
+          setHasBet(false); 
           setError(null);
           break;
         case 'roundStart':
