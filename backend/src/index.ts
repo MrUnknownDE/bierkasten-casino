@@ -50,11 +50,6 @@ app.use(
       secure: config.cookieSecure,
       sameSite: "lax",
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 Tage
-      
-      // --- ÄNDERUNG 2: Cookie-Domain explizit setzen ---
-      // Das stellt sicher, dass der Browser das Cookie für die richtige Domain speichert,
-      // auch bei komplexen Proxy-Setups.
-      domain: "casino.der-bierbaron.de",
     },
   })
 );

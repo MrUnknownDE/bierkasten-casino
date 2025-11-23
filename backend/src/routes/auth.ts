@@ -87,7 +87,14 @@ authRouter.get("/discord/callback", async (req, res) => {
         return res.status(500).json({ error: "Failed to save session" });
       }
       
-      console.log('[AUTH CALLBACK] Session saved successfully. Redirecting to frontend.');
+      console.log('[AUTH CALLBACK] Session saved successfully.');
+
+      // --- NEUER DIAGNOSE-LOG ---
+      // Zeigt uns exakt, welches Set-Cookie Header an den Browser gesendet wird.
+      const cookieHeader = res.get('Set-Cookie');
+      console.log('[AUTH CALLBACK] Sending Set-Cookie header:', cookieHeader);
+
+      console.log('[AUTH CALLBACK] Redirecting to frontend.');
       console.log(`[AUTH CALLBACK] Final redirect target: ${config.frontendOrigin}`);
       res.redirect(config.frontendOrigin);
     });
